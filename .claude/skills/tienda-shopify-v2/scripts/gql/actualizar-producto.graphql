@@ -1,0 +1,14 @@
+mutation ActualizarProducto($product: ProductUpdateInput!) {
+  productUpdate(product: $product) {
+    product {
+      id
+      title
+      handle
+      templateSuffix
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}

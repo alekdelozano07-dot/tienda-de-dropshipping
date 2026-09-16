@@ -1,0 +1,15 @@
+mutation AdjuntarMedia($productId: ID!, $media: [CreateMediaInput!]!) {
+  productCreateMedia(productId: $productId, media: $media) {
+    media {
+      alt
+      mediaContentType
+      status
+      ... on MediaImage { id image { url } }
+    }
+    mediaUserErrors {
+      field
+      message
+    }
+    product { id }
+  }
+}

@@ -1,0 +1,34 @@
+query LeerProductos($n: Int!) {
+  products(first: $n, sortKey: UPDATED_AT, reverse: true) {
+    nodes {
+      id
+      title
+      handle
+      status
+      description
+      descriptionHtml
+      productType
+      vendor
+      tags
+      templateSuffix
+      totalInventory
+      featuredImage { url altText }
+      images(first: 50) {
+        nodes { id url altText width height }
+      }
+      options { name }
+      variants(first: 100) {
+        nodes {
+          id
+          title
+          sku
+          price
+          compareAtPrice
+          availableForSale
+          inventoryQuantity
+          selectedOptions { name value }
+        }
+      }
+    }
+  }
+}
