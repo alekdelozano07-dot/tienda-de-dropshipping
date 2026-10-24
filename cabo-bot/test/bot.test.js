@@ -1,0 +1,162 @@
+import './env.js';
+import { test, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { openDb, getDb } from '../src/db.js';
+import { outbox } from '../src/whatsapp.js';
+import { handleIncoming } from '../src/bot.js';
+import { handlePayment } from '../src/server.js';
+import { tick } from '../src/scheduler.js';
+import { addDays, caboInstant, caboToday, parseDate } from '../src/dates.js';
+import { availableBoats } from '../src/bookings.js';
+
+const OWNER = '5210000000000';
+const CAPTAIN = '5216241000001';
+const TOURIST = '15551234567';
+
+function seed() {
+  const db = openDb(':memory:');
+  db.prepare(`INSERT INTO captains (id, name, phone) VALUES (1, 'Juan', ?)`).run(CAPTAIN);
+  db.prepare(`INSERT INTO boats (id, captain_id, name, length_ft, max_guests, price_4h, price_6h, price_8h, meeting_point)
+              VALUES (1, 1, 'La Reina', 31, 6, 450, 600, 750, 'Dock M')`).run();
+  db.prepare(`INSERT INTO rental_items (id, name, category, price_per_day, stock) VALUES (1, 'Beach umbrella', 'beach', 10, 2), (2, 'Stroller', 'baby', 12, 1)`).run();
+}
+
+const say = (text, from = TOURIST, replyId = null) => handleIncoming({ from, name: 'Jane Doe', text, replyId });
+const lastTo = (phone) => [...outbox].reverse().find((m) => m.to === phone)?.message;
+const allTo = (phone) => outbox.filter((m) => m.to === phone).map((m) => m.message.text).join('\n---\n');
+
+beforeEach(() => { outbox.length = 0; seed(); });
+
+test('parses common date formats', () => {
+  const now = new Date('2026-10-24T18:00:00Z'); // Sat Oct 24 in Cabo
+  assert.equal(parseDate('tomorrow', now), '2026-10-25');
+  assert.equal(parseDate('Nov 3rd', now), '2026-11-03');
+  assert.equal(parseDate('11/3', now), '2026-11-03');
+  assert.equal(parseDate('2026-12-01', now), '2026-12-01');
+  assert.equal(parseDate('March 2', now), '2027-03-02');
+  assert.equal(parseDate('monday', now), '2026-10-26');
+  assert.equal(parseDate('blah', now), null);
+  assert.equal(parseDate('2/30', now), null);
+});
+
+test('full fishing booking: availability, deposit, captain notified', async () => {
+  const date = addDays(caboToday(), 3);
+  await say('Hi! (ref: airbnb-casa-azul)');
+  assert.match(lastTo(TOURIST).text, /Welcome/);
+  await say('Fishing trip', TOURIST, 'fish');
+  await say(date);
+  await say('4');
+  await say('8 hours', TOURIST, 'h8');
+  const boats = lastTo(TOURIST);
+  assert.match(boats.text, /La Reina/);
+  await say('La Reina', TOURIST, 'boat1');
+  await say('Jane Doe', TOURIST, 'usename');
+  assert.match(lastTo(TOURIST).text, /Pay now online: \*\$150\*/);
+  assert.match(lastTo(TOURIST).text, /cash: \*\$600\*/);
+  await say('Confirm & pay', TOURIST, 'pay');
+  const payMsg = lastTo(TOURIST).text;
+  const code = payMsg.match(/dev\/pay\/(CB\w+)/)[1];
+
+  // While unpaid, the boat is held for others.
+  assert.equal(availableBoats(date, 8, 2).length, 0);
+
+  assert.equal(await handlePayment(code), 'confirmed');
+  assert.match(lastTo(TOURIST).text, /You're booked/);
+  assert.match(lastTo(CAPTAIN).text, /NEW TRIP CONFIRMED/);
+  assert.match(lastTo(CAPTAIN).text, /Collect in cash: \$600/);
+  assert.match(allTo(OWNER), /deposit \$150 USD/);
+
+  const b = getDb().prepare('SELECT * FROM bookings WHERE code = ?').get(code);
+  assert.equal(b.status, 'confirmed');
+  assert.equal(b.source, 'airbnb-casa-azul');
+
+  // Paying twice is harmless
+  assert.equal(await handlePayment(code), 'already');
+
+  // Another tourist sees no boats that day
+  await say('hi', '15559999999');
+  await say('fish', '15559999999');
+  await say(date, '15559999999');
+  await say('2', '15559999999');
+  await say('4 hours', '15559999999');
+  assert.match(lastTo('15559999999').text, /No boats available/);
+});
+
+test('rental booking with stock limits and full online payment', async () => {
+  const start = addDays(caboToday(), 2);
+  await say('hello');
+  await say('rent');
+  await say(start);
+  await say('3'); // days
+  await say('Stroller', TOURIST, 'item2');
+  await say('1', TOURIST, 'q1');
+  assert.match(lastTo(TOURIST).text, /1 × Stroller — \$36/);
+  await say('Beach umbrella', TOURIST, 'item1');
+  await say('2');
+  await say('checkout', TOURIST, 'checkout');
+  await say('Villa Paraiso, Pedregal 123, Cabo San Lucas');
+  await say('Jane Doe', TOURIST, 'usename');
+  assert.match(lastTo(TOURIST).text, /Total \*\$121\*/); // 36 + 60 + 25 delivery
+  await say('pay', TOURIST, 'pay');
+  const code = lastTo(TOURIST).text.match(/dev\/pay\/(CB\w+)/)[1];
+  assert.equal(await handlePayment(code), 'confirmed');
+  assert.match(allTo(OWNER), /DELIVERY TASK/);
+
+  // Overlapping rental: stroller and umbrellas are gone, list should be empty
+  const other = '15558888888';
+  await say('hi', other);
+  await say('rent', other);
+  await say(addDays(start, 1), other);
+  await say('2', other);
+  assert.match(lastTo(other).text, /everything is booked/);
+});
+
+test('human handoff and owner reply', async () => {
+  await say('hi');
+  await say('human');
+  assert.match(lastTo(OWNER).text, /HUMAN NEEDED/);
+  await say('My kid is allergic to shellfish, is lunch ok?');
+  assert.match(lastTo(OWNER).text, /allergic/);
+  await say(`REPLY ${TOURIST} Yes, we can do a chicken lunch!`, OWNER);
+  assert.match(lastTo(TOURIST).text, /chicken lunch/);
+  await say(`BOT ${TOURIST}`, OWNER);
+  await say('menu');
+  assert.match(lastTo(TOURIST).text, /What would you like to do/);
+});
+
+test('captain can block dates', async () => {
+  const date = addDays(caboToday(), 5);
+  await say(`BLOCK ${date}`, CAPTAIN);
+  assert.match(lastTo(CAPTAIN).text, /closed for new bookings/);
+  assert.equal(availableBoats(date, 4, 2).length, 0);
+  await say(`UNBLOCK ${date}`, CAPTAIN);
+  assert.equal(availableBoats(date, 4, 2).length, 1);
+});
+
+test('expired holds are released and late payments are flagged', async () => {
+  const date = addDays(caboToday(), 3);
+  for (const t of ['hi', 'fish', date, '2']) await say(t);
+  await say('4 hours', TOURIST, 'h4');
+  await say('x', TOURIST, 'boat1');
+  await say('x', TOURIST, 'usename');
+  await say('x', TOURIST, 'pay');
+  const code = lastTo(TOURIST).text.match(/dev\/pay\/(CB\w+)/)[1];
+  getDb().prepare(`UPDATE bookings SET hold_expires_at = datetime('now', '-1 minute') WHERE code = ?`).run(code);
+  await tick();
+  assert.match(lastTo(TOURIST).text, /expired/);
+  assert.equal(availableBoats(date, 4, 2).length, 1);
+  // Paid late but the boat is still free → confirm anyway
+  assert.equal(await handlePayment(code), 'confirmed');
+});
+
+test('day-before reminder goes to client and captain', async () => {
+  const date = addDays(caboToday(), 1);
+  getDb().prepare(`INSERT INTO bookings (code, kind, status, customer_phone, customer_name, date, boat_id, hours, guests, total, paid_online, balance_cash, confirmed_at)
+    VALUES ('CBTEST', 'fishing', 'confirmed', ?, 'Jane', ?, 1, 4, 2, 450, 90, 360, datetime('now', '-2 days'))`).run(TOURIST, date);
+  await tick(new Date(caboInstant(caboToday(), '17:05')));
+  assert.match(lastTo(TOURIST).text, /trip is tomorrow/);
+  assert.match(lastTo(CAPTAIN).text, /Trip tomorrow/);
+  outbox.length = 0;
+  await tick(new Date(caboInstant(caboToday(), '17:10')));
+  assert.equal(outbox.length, 0); // not sent twice
+});
