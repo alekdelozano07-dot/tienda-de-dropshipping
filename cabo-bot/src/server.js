@@ -2,7 +2,7 @@ import http from 'node:http';
 import { config, devMode } from './config.js';
 import { getDb } from './db.js';
 import { handleIncoming } from './bot.js';
-import { outbox, parseWebhook, verifySignature } from './whatsapp.js';
+import { outbox, parseWebhook, recordIncoming, verifySignature } from './whatsapp.js';
 import { parseStripeEvent } from './payments.js';
 import { markPaid } from './bookings.js';
 import { onConfirmed, onPaymentConflict } from './notify.js';
@@ -119,15 +119,18 @@ export async function route(req, res) {
     }
   }
   if (devMode.whatsapp) {
-    if (req.method === 'GET' && path === '/dev/chat') return send(res, 200, devChatPage(), 'text/html; charset=utf-8');
+    if (req.method === 'GET' && path === '/dev/chat') return send(res, 200, devChatPage(getDb()), 'text/html; charset=utf-8');
     if (req.method === 'POST' && path === '/dev/send') {
       const { from, text, replyId, name } = JSON.parse(await readBody(req));
-      await handleIncoming({ from: String(from).replace(/\D/g, ''), text, replyId, name });
+      const phone = String(from).replace(/\D/g, '');
+      recordIncoming(phone, text);
+      await handleIncoming({ from: phone, text, replyId, name });
       return send(res, 200, '{}', 'application/json');
     }
     if (req.method === 'GET' && path === '/dev/outbox') {
       const since = Number(url.searchParams.get('since') || 0);
-      return send(res, 200, JSON.stringify({ total: outbox.length, items: outbox.slice(since) }), 'application/json');
+      const items = outbox.filter((m) => m.seq > since);
+      return send(res, 200, JSON.stringify({ last: outbox.at(-1)?.seq || 0, items }), 'application/json');
     }
   }
 

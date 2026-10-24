@@ -4,7 +4,8 @@ export const config = {
   port: Number(env.PORT || 3000),
   publicUrl: (env.PUBLIC_URL || `http://localhost:${env.PORT || 3000}`).replace(/\/$/, ''),
   businessName: env.BUSINESS_NAME || 'Cabo Fish & Beach',
-  ownerPhone: env.OWNER_PHONE || '',
+  // In local test mode the simulator uses a fake owner number so escalations can be tried out.
+  ownerPhone: env.OWNER_PHONE || (env.WHATSAPP_TOKEN ? '' : '5210000000000'),
   ownerLang: env.OWNER_LANG === 'en' ? 'en' : 'es',
   botPhone: env.BOT_PHONE || '',
   adminPassword: env.ADMIN_PASSWORD || 'change-me',

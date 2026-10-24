@@ -122,28 +122,41 @@ ${captains.map((c) => `<tr><td>${esc(c.name)}</td><td>+${esc(c.phone)}</td><td>$
 </main></body></html>`;
 }
 
-export function devChatPage() {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+export function devChatPage(db) {
+  // Quick buttons to play each role: two tourists, every captain, and the owner.
+  const roles = [
+    { label: '🇺🇸 Tourist / Turista EN', phone: '15551234567', name: 'John Smith' },
+    { label: '🇲🇽 Turista ES', phone: '5213310000000', name: 'Ana López' },
+    ...db.prepare('SELECT name, phone FROM captains WHERE active = 1 ORDER BY id').all()
+      .map((c) => ({ label: `🚤 Cap. ${c.name}`, phone: c.phone, name: c.name })),
+    { label: '👤 Owner / Dueño', phone: config.ownerPhone, name: 'Owner' },
+  ].filter((r) => r.phone);
+
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Bot simulator</title><style>${STYLE}
-  #log { background:var(--card); border:1px solid var(--line); border-radius:10px; height:60vh; overflow-y:auto; padding:12px }
+  #log { background:var(--card); border:1px solid var(--line); border-radius:10px; height:58vh; overflow-y:auto; padding:12px }
   .m { max-width:85%; margin:6px 0; padding:8px 12px; border-radius:10px; white-space:pre-wrap; word-wrap:break-word }
   .in { background:#dcf8c6; color:#111; margin-left:auto } .out { background:var(--bg); border:1px solid var(--line) }
   .opts button { margin:4px 4px 0 0; padding:6px 10px; font-size:13px }
-  form { display:flex; gap:8px; margin-top:10px } input { flex:1; font:inherit; padding:10px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink) }
-  .who { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; align-items:center }
+  form { display:flex; gap:8px; margin-top:10px } input { flex:1; min-width:0; font:inherit; padding:10px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink) }
+  .roles { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px }
+  .roles button { background:var(--card); color:var(--ink); border:1px solid var(--line); padding:6px 10px; font-size:13px }
+  .roles button.on { background:var(--accent); color:#fff; border-color:var(--accent) }
 </style></head><body><main style="max-width:640px">
 <h1>WhatsApp bot simulator / Simulador</h1>
-<div class="who"><label>Phone / Teléfono <input id="phone" value="15551234567" style="width:160px"></label>
-<span class="muted">Use a captain's or the owner's number to test their commands. / Usa el número de un capitán o del dueño para probar sus comandos.</span></div>
+<p class="muted">Pick who you are. Each one has their own chat. / Elige quién eres. Cada uno tiene su propio chat.</p>
+<div class="roles" id="roles"></div>
 <div id="log"></div>
-<form id="f"><input id="t" placeholder="Type a message… / Escribe un mensaje… (hi / hola)" autocomplete="off"><button>Send / Enviar</button></form>
+<form id="f"><input id="t" placeholder="Escribe un mensaje… / Type a message…" autocomplete="off"><button>Enviar / Send</button></form>
 <script>
-let since = 0;
+const ROLES = ${JSON.stringify(roles).replace(/</g, '\\u003c')};
+let role = ROLES[0], since = 0;
 const log = document.getElementById('log');
-const phone = () => document.getElementById('phone').value.replace(/\\D/g, '');
 function bubble(cls, text, opts) {
   const d = document.createElement('div'); d.className = 'm ' + cls; d.textContent = text;
-  d.innerHTML = d.innerHTML.replace(/(https?:\\/\\/[^\\s<]+)/g, '<a href="$1" target="_blank">$1</a>');
+  d.innerHTML = d.innerHTML
+    .replace(/\\*([^*\\n]+)\\*/g, '<b>$1</b>').replace(/(^|\\s)_([^_\\n]+)_/g, '$1<i>$2</i>')
+    .replace(/(https?:\\/\\/[^\\s<]+)/g, '<a href="$1" target="_blank">$1</a>');
   if (opts && opts.length) {
     const o = document.createElement('div'); o.className = 'opts';
     opts.forEach(op => { const b = document.createElement('button'); b.textContent = op.title; b.onclick = () => send(op.title, op.id); o.appendChild(b); });
@@ -151,20 +164,33 @@ function bubble(cls, text, opts) {
   }
   log.appendChild(d); log.scrollTop = log.scrollHeight;
 }
-async function send(text, replyId) {
-  bubble('in', text);
-  await fetch('/dev/send', { method: 'POST', body: JSON.stringify({ from: phone(), text, replyId, name: 'Test Tourist' }) });
+function pickRole(r) {
+  role = r; since = 0; log.innerHTML = '';
+  document.querySelectorAll('#roles button').forEach(b => b.classList.toggle('on', b.dataset.phone === r.phone));
   poll();
 }
+ROLES.forEach(r => {
+  const b = document.createElement('button'); b.textContent = r.label; b.dataset.phone = r.phone; b.onclick = () => pickRole(r);
+  document.getElementById('roles').appendChild(b);
+});
+async function send(text, replyId) {
+  await fetch('/dev/send', { method: 'POST', body: JSON.stringify({ from: role.phone, text, replyId, name: role.name }) });
+  poll();
+}
+let polling = false;
 async function poll() {
-  const r = await (await fetch('/dev/outbox?since=' + since)).json();
-  since = r.total;
-  r.items.filter(i => i.to === phone()).forEach(i => {
-    const m = i.message;
-    bubble('out', m.text, m.buttons || (m.list && m.list.rows));
-  });
+  if (polling) return; polling = true;
+  try {
+    const r = await (await fetch('/dev/outbox?since=' + since)).json();
+    since = r.last;
+    r.items.filter(i => i.to === role.phone).forEach(i => {
+      if (i.incoming) bubble('in', i.message.text);
+      else bubble('out', i.message.text, i.message.buttons || (i.message.list && i.message.list.rows));
+    });
+  } finally { polling = false; }
 }
 document.getElementById('f').onsubmit = e => { e.preventDefault(); const t = document.getElementById('t'); if (t.value.trim()) send(t.value.trim()); t.value = ''; };
-setInterval(poll, 1500); poll();
+pickRole(ROLES[0]);
+setInterval(poll, 1500);
 </script></main></body></html>`;
 }

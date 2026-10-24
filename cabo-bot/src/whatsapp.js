@@ -4,6 +4,17 @@ import { getDb } from './db.js';
 
 // In local test mode outgoing messages are kept here (the /dev/chat page reads them).
 export const outbox = [];
+let outboxSeq = 0;
+
+function keep(entry) {
+  outbox.push({ seq: ++outboxSeq, at: new Date().toISOString(), ...entry });
+  if (outbox.length > 500) outbox.shift();
+}
+
+// Lets the simulator show what the tester typed when it redraws a chat.
+export function recordIncoming(from, text) {
+  keep({ to: from, incoming: true, message: { text } });
+}
 
 const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 
@@ -73,8 +84,7 @@ export async function sendMessage(to, message, { notification = false, lang = 'e
   getDb().prepare('INSERT INTO messages_log (phone, direction, body) VALUES (?, ?, ?)').run(to, 'out', renderText(message));
 
   if (devMode.whatsapp) {
-    outbox.push({ to, message, at: new Date().toISOString() });
-    if (outbox.length > 500) outbox.shift();
+    keep({ to, message });
     if (process.env.NODE_ENV !== 'test') console.log(`\n→ WhatsApp to ${to}:\n${renderText(message)}\n`);
     return;
   }

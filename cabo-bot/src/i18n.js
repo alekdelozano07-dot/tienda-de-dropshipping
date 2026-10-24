@@ -241,7 +241,7 @@ const en = {
 const es = {
   // ----- Turista -----
   welcome: (hi, biz) =>
-    `¡Hola${hi ? ' ' + hi : ''}! 👋 Bienvenido a *${biz}* en Los Cabos.\n\n` +
+    `¡Hola${hi ? ' ' + hi : ''}! 👋 Te damos la bienvenida a *${biz}* en Los Cabos.\n\n` +
     `🎣 Reserva un *viaje de pesca* con capitanes locales de confianza\n` +
     `🏖️ Renta *equipo de playa y de bebé* con entrega en tu villa\n\n` +
     `¿En qué te puedo ayudar?\n\n🇺🇸 _Type *english* to switch language._`,

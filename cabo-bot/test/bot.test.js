@@ -251,7 +251,7 @@ test('Spanish-speaking tourist books a trip in Spanish, captain 2 gets it in Eng
   const date = addDays(caboToday(), 4);
   const [y, m, d] = date.split('-');
   await say('Hola! Quiero reservar (ref: taxi-7)', MX);
-  assert.match(lastTo(MX).text, /Bienvenido/);
+  assert.match(lastTo(MX).text, /Te damos la bienvenida/);
   assert.equal(lastTo(MX).buttons[0].title, '🎣 Viaje de pesca');
   await say('pesca', MX);
   assert.match(lastTo(MX).text, /Qué día/);

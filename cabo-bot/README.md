@@ -66,7 +66,7 @@ npm run seed      # carga capitanes, barcos y equipo de ejemplo
 npm start
 ```
 
-Abre **http://localhost:3000/dev/chat** y escribe `hi`. Puedes hacer una reserva completa; el link de pago abre una página de pago falsa. Cambia el número de arriba por el de un capitán de ejemplo (`5216241000001`) para probar sus comandos.
+Abre **http://localhost:3000/dev/chat**. Arriba hay botones para hacer cada papel: turista en inglés, turista en español, cada capitán y tú (el dueño). Cada uno tiene su propio chat, así que puedes reservar como turista, cambiarte al capitán para tocar **SÍ**, y regresar al turista para pagar. El link de pago abre una página de pago falsa. No hace falta crear el archivo `.env` para esta prueba.
 
 Pruebas automáticas: `npm test`.
 
