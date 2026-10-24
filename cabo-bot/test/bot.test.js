@@ -16,11 +16,13 @@ const TOURIST = '15551234567';
 
 function seed() {
   const db = openDb(':memory:');
-  db.prepare(`INSERT INTO captains (id, name, phone) VALUES (1, 'Juan', ?), (2, 'Miguel', ?)`).run(CAPTAIN, CAPTAIN2);
+  // Captain 1 reads Spanish (the default), captain 2 English. The owner reads Spanish.
+  db.prepare(`INSERT INTO captains (id, name, phone, lang) VALUES (1, 'Juan', ?, 'es'), (2, 'Miguel', ?, 'en')`).run(CAPTAIN, CAPTAIN2);
   db.prepare(`INSERT INTO boats (id, captain_id, name, length_ft, max_guests, price_4h, price_6h, price_8h, meeting_point)
               VALUES (1, 1, 'La Reina', 31, 6, 450, 600, 750, 'Dock M'),
                      (2, 2, 'Pescadora', 26, 4, 350, 450, NULL, 'Dock A')`).run();
-  db.prepare(`INSERT INTO rental_items (id, name, category, price_per_day, stock) VALUES (1, 'Beach umbrella', 'beach', 10, 2), (2, 'Stroller', 'baby', 12, 1)`).run();
+  db.prepare(`INSERT INTO rental_items (id, name, name_es, category, price_per_day, stock)
+              VALUES (1, 'Beach umbrella', 'Sombrilla', 'beach', 10, 2), (2, 'Stroller', 'Carriola', 'baby', 12, 1)`).run();
 }
 
 const say = (text, from = TOURIST, replyId = null) => handleIncoming({ from, name: 'Jane Doe', text, replyId });
@@ -61,22 +63,22 @@ test('full fishing booking: availability, deposit, captain notified', async () =
 
   // The captain is asked first; the boat is held meanwhile.
   const request = lastTo(CAPTAIN);
-  assert.match(request.text, /NEW REQUEST/);
+  assert.match(request.text, /NUEVA SOLICITUD/);
   assert.equal(availableBoats(date, 8, 2).length, 0);
   const code = request.text.match(/(CB[0-9A-F]{6})/)[1];
   assert.equal(request.buttons[0].id, `cap_yes_${code}`);
 
-  await say('✅ YES, available', CAPTAIN, `cap_yes_${code}`);
-  assert.match(lastTo(CAPTAIN).text, /sent the payment link/);
+  await say('✅ SÍ, disponible', CAPTAIN, `cap_yes_${code}`);
+  assert.match(lastTo(CAPTAIN).text, /mandamos el link de pago/);
   assert.match(lastTo(TOURIST).text, /Capt\. Juan confirmed/);
   assert.equal(payCode(TOURIST), code);
   assert.equal(availableBoats(date, 8, 2).length, 0);
 
   assert.equal(await handlePayment(code), 'confirmed');
   assert.match(lastTo(TOURIST).text, /You're booked/);
-  assert.match(lastTo(CAPTAIN).text, /NEW TRIP CONFIRMED/);
-  assert.match(lastTo(CAPTAIN).text, /Collect in cash: \$600/);
-  assert.match(allTo(OWNER), /deposit \$150 USD/);
+  assert.match(lastTo(CAPTAIN).text, /NUEVO VIAJE CONFIRMADO/);
+  assert.match(lastTo(CAPTAIN).text, /Cobrar en efectivo: \$600/);
+  assert.match(allTo(OWNER), /anticipo \$150 USD/);
 
   const b = getDb().prepare('SELECT * FROM bookings WHERE code = ?').get(code);
   assert.equal(b.status, 'confirmed');
@@ -112,7 +114,7 @@ test('rental booking with stock limits and full online payment', async () => {
   await say('pay', TOURIST, 'pay');
   const code = lastTo(TOURIST).text.match(/dev\/pay\/(CB\w+)/)[1];
   assert.equal(await handlePayment(code), 'confirmed');
-  assert.match(allTo(OWNER), /DELIVERY TASK/);
+  assert.match(allTo(OWNER), /ENTREGA PENDIENTE/);
 
   // Overlapping rental: stroller and umbrellas are gone, list should be empty
   const other = '15558888888';
@@ -126,7 +128,7 @@ test('rental booking with stock limits and full online payment', async () => {
 test('human handoff and owner reply', async () => {
   await say('hi');
   await say('human');
-  assert.match(lastTo(OWNER).text, /HUMAN NEEDED/);
+  assert.match(lastTo(OWNER).text, /SE NECESITA UNA PERSONA/);
   await say('My kid is allergic to shellfish, is lunch ok?');
   assert.match(lastTo(OWNER).text, /allergic/);
   await say(`REPLY ${TOURIST} Yes, we can do a chicken lunch!`, OWNER);
@@ -139,7 +141,7 @@ test('human handoff and owner reply', async () => {
 test('captain can block dates', async () => {
   const date = addDays(caboToday(), 5);
   await say(`BLOCK ${date}`, CAPTAIN);
-  assert.match(lastTo(CAPTAIN).text, /closed for new bookings/);
+  assert.match(lastTo(CAPTAIN).text, /cerrado para nuevas reservas/);
   assert.equal(availableBoats(date, 4, 2).length, 1);
   await say(`UNBLOCK ${date}`, CAPTAIN);
   assert.equal(availableBoats(date, 4, 2).length, 2);
@@ -168,7 +170,7 @@ test('day-before reminder goes to client and captain', async () => {
     VALUES ('CBTEST', 'fishing', 'confirmed', ?, 'Jane', ?, 1, 4, 2, 450, 90, 360, datetime('now', '-2 days'))`).run(TOURIST, date);
   await tick(new Date(caboInstant(caboToday(), '17:05')));
   assert.match(lastTo(TOURIST).text, /trip is tomorrow/);
-  assert.match(lastTo(CAPTAIN).text, /Trip tomorrow/);
+  assert.match(lastTo(CAPTAIN).text, /Viaje mañana/);
   outbox.length = 0;
   await tick(new Date(caboInstant(caboToday(), '17:10')));
   assert.equal(outbox.length, 0); // not sent twice
@@ -186,7 +188,7 @@ test('captain says NO: date closed for that boat, client gets other boats', asyn
   const date = addDays(caboToday(), 4);
   await requestBoat(1, date);
   await say('No', CAPTAIN);
-  assert.match(lastTo(CAPTAIN).text, /now closed/);
+  assert.match(lastTo(CAPTAIN).text, /queda cerrado/);
   const offer = lastTo(TOURIST);
   assert.match(allTo(TOURIST), /no longer available/);
   assert.deepEqual(offer.list.rows.map((r) => r.id), ['boat2', 'otherdate']);
@@ -195,7 +197,7 @@ test('captain says NO: date closed for that boat, client gets other boats', asyn
   await say('Pescadora', TOURIST, 'boat2');
   await say('x', TOURIST, 'usename');
   await say('x', TOURIST, 'pay');
-  assert.match(lastTo(CAPTAIN2).text, /NEW REQUEST/);
+  assert.match(lastTo(CAPTAIN2).text, /NEW REQUEST/); // captain 2 reads English
 });
 
 test('captain does not answer: other boats offered, then a person if none left', async () => {
@@ -205,10 +207,10 @@ test('captain does not answer: other boats offered, then a person if none left',
   getDb().prepare(`UPDATE bookings SET hold_expires_at = datetime('now', '-1 minute') WHERE code = ?`).run(code);
   await tick();
   assert.match(allTo(TOURIST), /hasn't confirmed yet/);
-  assert.match(lastTo(CAPTAIN).text, /expired without an answer/);
+  assert.match(lastTo(CAPTAIN).text, /venció sin respuesta/);
   // Late YES is rejected
   await say(`YES ${code}`, CAPTAIN);
-  assert.match(lastTo(CAPTAIN).text, /no longer open/);
+  assert.match(lastTo(CAPTAIN).text, /ya no está abierta/);
 
   await say('Pescadora', TOURIST, 'boat2');
   await say('x', TOURIST, 'usename');
@@ -216,7 +218,7 @@ test('captain does not answer: other boats offered, then a person if none left',
   const code2 = lastTo(CAPTAIN2).text.match(/(CB[0-9A-F]{6})/)[1];
   getDb().prepare(`UPDATE bookings SET hold_expires_at = datetime('now', '-1 minute') WHERE code = ?`).run(code2);
   await tick();
-  assert.match(lastTo(OWNER).text, /HUMAN NEEDED/);
+  assert.match(lastTo(OWNER).text, /SE NECESITA UNA PERSONA/);
   assert.match(lastTo(TOURIST).text, /connecting you with our team/);
 });
 
@@ -224,7 +226,7 @@ test('client can cancel while waiting for the captain', async () => {
   await requestBoat(1, addDays(caboToday(), 4));
   await say('cancel');
   assert.match(lastTo(TOURIST).text, /What would you like to do/);
-  assert.match(lastTo(CAPTAIN).text, /cancelled by the client/);
+  assert.match(lastTo(CAPTAIN).text, /cliente canceló/);
 });
 
 test('night requests give the captain until 7 AM', async () => {
@@ -233,4 +235,83 @@ test('night requests give the captain until 7 AM', async () => {
   assert.equal(captainDeadline(15, night).toISOString(), '2026-10-25T14:15:00.000Z'); // 7:15 AM Oct 25 Cabo
   const day = new Date('2026-10-25T18:00:00Z'); // 11 AM Cabo
   assert.equal(captainDeadline(15, day).toISOString(), '2026-10-25T18:15:00.000Z');
+});
+
+test('detects the language of the first message', async () => {
+  const { detectLang } = await import('../src/i18n.js');
+  assert.equal(detectLang('Hola, quiero pescar'), 'es');
+  assert.equal(detectLang('¿Tienen barcos?'), 'es');
+  assert.equal(detectLang('Hi! I want to go fishing'), 'en');
+  assert.equal(detectLang('👍', '5216241234567'), 'es'); // ambiguous: Mexican number
+  assert.equal(detectLang('👍', '15551234567'), 'en');
+});
+
+test('Spanish-speaking tourist books a trip in Spanish, captain 2 gets it in English', async () => {
+  const MX = '5213310000000';
+  const date = addDays(caboToday(), 4);
+  const [y, m, d] = date.split('-');
+  await say('Hola! Quiero reservar (ref: taxi-7)', MX);
+  assert.match(lastTo(MX).text, /Bienvenido/);
+  assert.equal(lastTo(MX).buttons[0].title, '🎣 Viaje de pesca');
+  await say('pesca', MX);
+  assert.match(lastTo(MX).text, /Qué día/);
+  await say(`${+d}/${+m}`, MX); // day first in Spanish
+  assert.match(lastTo(MX).text, /Cuántas personas/);
+  await say('3', MX);
+  await say('4 horas', MX);
+  assert.match(lastTo(MX).text, /barcos disponibles/);
+  await say('x', MX, 'boat2');
+  await say('x', MX, 'usename');
+  assert.match(lastTo(MX).text, /Pagas ahora en línea: \*\$70\*/);
+  await say('Confirmar y pagar', MX);
+  assert.match(lastTo(MX).text, /Todavía no tienes que pagar nada/);
+  assert.match(lastTo(CAPTAIN2).text, /NEW REQUEST/);
+  await say('yes', CAPTAIN2);
+  assert.match(lastTo(CAPTAIN2).text, /We sent the payment link/);
+  assert.match(lastTo(MX).text, /confirmó el barco/);
+  const code = payCode(MX);
+  assert.equal(getDb().prepare('SELECT lang FROM bookings WHERE code = ?').get(code).lang, 'es');
+  await handlePayment(code);
+  assert.match(lastTo(MX).text, /Reserva lista/);
+  assert.match(lastTo(MX).text, /Viaje de pesca/);
+  assert.match(lastTo(CAPTAIN2).text, /NEW TRIP CONFIRMED/);
+});
+
+test('switching language mid-flow repeats the question in the new language', async () => {
+  await say('hi');
+  await say('rent');
+  await say(addDays(caboToday(), 2));
+  await say('2');
+  assert.match(lastTo(TOURIST).text, /What would you like to rent/);
+  await say('español');
+  const msgs = outbox.filter((x) => x.to === TOURIST).slice(-2);
+  assert.match(msgs[0].message.text, /seguimos en español/);
+  assert.match(msgs[1].message.text, /Qué te gustaría rentar/);
+  assert.deepEqual(msgs[1].message.list.rows.map((r) => r.title).sort(), ['Carriola', 'Sombrilla']);
+  await say('english');
+  assert.match(lastTo(TOURIST).text, /What would you like to rent/);
+});
+
+test('captain and owner commands work in Spanish and English', async () => {
+  const date = addDays(caboToday(), 6);
+  await say(`BLOQUEAR ${date}`, CAPTAIN);
+  assert.equal(availableBoats(date, 4, 2).length, 1);
+  await say(`desbloquear ${date}`, CAPTAIN);
+  assert.equal(availableBoats(date, 4, 2).length, 2);
+  await say('viajes', CAPTAIN);
+  assert.match(lastTo(CAPTAIN).text, /no tienes viajes/i);
+  await say('english', CAPTAIN);
+  assert.match(lastTo(CAPTAIN).text, /Captain commands/);
+  await say('TRIPS', CAPTAIN);
+  assert.match(lastTo(CAPTAIN).text, /No upcoming trips/);
+
+  await say('HOY', OWNER);
+  assert.match(lastTo(OWNER).text, /No hay nada programado/);
+  await say('hola');
+  await say('humano');
+  assert.match(lastTo(TOURIST).text, /Te comunico con nuestro equipo/);
+  await say(`RESPONDER ${TOURIST} ¡Claro que sí!`, OWNER);
+  assert.match(lastTo(TOURIST).text, /Claro que sí/);
+  await say(`BOT ${TOURIST}`, OWNER);
+  assert.match(lastTo(TOURIST).text, /Gracias por tu paciencia/);
 });

@@ -1,116 +1,83 @@
 import { config } from './config.js';
 import { sendMessage } from './whatsapp.js';
-import { formatDate, formatTime, TRIP_START } from './dates.js';
+import { TRIP_START } from './dates.js';
+import { fmtDate, fmtTime, itemName, t, usd } from './i18n.js';
 
-const usd = (n) => `$${n.toLocaleString('en-US')} USD`;
+const owner = config.ownerLang;
+const toOwner = (text) => sendMessage(config.ownerPhone, { text }, { notification: true, lang: owner });
+const toCaptain = (b, message) => sendMessage(b.captain_phone, message, { notification: true, lang: b.captain_lang });
+const toClient = (b, text, notification = false) => sendMessage(b.customer_phone, { text }, { notification, lang: b.lang });
 
-export function bookingSummary(b) {
-  if (b.kind === 'fishing') {
-    return [
-      `🎣 *Fishing charter* — ${b.code}`,
-      `📅 ${formatDate(b.date)}, ${formatTime(TRIP_START[b.hours])} (${b.hours} hours)`,
-      `🚤 ${b.boat_name}${b.length_ft ? ` (${b.length_ft} ft)` : ''} — Capt. ${b.captain_name}`,
-      `👥 ${b.guests} guest${b.guests > 1 ? 's' : ''}`,
-      b.meeting_point ? `📍 Meeting point: ${b.meeting_point}` : null,
-      `💵 Total ${usd(b.total)} · Deposit online ${usd(b.paid_online)} · Cash to captain ${usd(b.balance_cash)}`,
-    ].filter(Boolean).join('\n');
-  }
-  return [
-    `🏖️ *Beach & baby rental* — ${b.code}`,
-    `📅 ${formatDate(b.date)} → ${formatDate(b.end_date)}`,
-    ...b.items.map((i) => `• ${i.qty} × ${i.name}`),
-    `🚚 Delivery to: ${b.delivery_address}`,
-    `💵 Total ${usd(b.total)} (paid online)`,
-  ].join('\n');
+// Booking summary in the reader's language.
+export function bookingSummary(b, lang = b.lang) {
+  const lines = b.kind === 'fishing'
+    ? t(lang, 'summaryFishing', {
+      code: b.code, date: fmtDate(b.date, lang), time: fmtTime(TRIP_START[b.hours], lang), hours: b.hours,
+      boat: b.boat_name, length: b.length_ft, captain: b.captain_name, guests: b.guests, meeting: b.meeting_point,
+      total: usd(b.total), deposit: usd(b.paid_online), cash: usd(b.balance_cash),
+    })
+    : t(lang, 'summaryRental', {
+      code: b.code, start: fmtDate(b.date, lang), end: fmtDate(b.end_date, lang),
+      items: b.items.map((i) => `• ${i.qty} × ${itemName(i, lang)}`), address: b.delivery_address, total: usd(b.total),
+    });
+  return lines.filter(Boolean).join('\n');
+}
+
+function tripFields(b, lang) {
+  return {
+    code: b.code, boat: b.boat_name, date: fmtDate(b.date, lang), time: fmtTime(TRIP_START[b.hours], lang), hours: b.hours,
+    guests: b.guests, client: b.customer_name, phone: b.customer_phone,
+    total: usd(b.total), deposit: usd(b.paid_online), cash: usd(b.balance_cash),
+  };
 }
 
 // Asks the captain to confirm the boat is free before the customer pays.
 export async function askCaptain(b) {
+  const lang = b.captain_lang;
   const deadline = new Date(b.hold_expires_at.replace(' ', 'T') + 'Z');
   const minutes = Math.max(1, Math.round((deadline - Date.now()) / 60_000));
-  await sendMessage(b.captain_phone, {
-    text:
-      `🎣 NEW REQUEST — ${b.code}\n` +
-      `Is *${b.boat_name}* free on *${formatDate(b.date)}*, ${formatTime(TRIP_START[b.hours])} for ${b.hours}h, ${b.guests} guests?\n` +
-      `Price: ${usd(b.total)} (client pays ${usd(b.paid_online)} deposit online, you collect ${usd(b.balance_cash)} cash)\n\n` +
-      `Reply *YES ${b.code}* or *NO ${b.code}*` + (minutes <= 120 ? ` within ${minutes} min.` : ' by 7:15 AM.'),
+  await toCaptain(b, {
+    text: t(lang, 'capRequest', { ...tripFields(b, lang), deadline: minutes <= 120 ? t(lang, 'capWithin', minutes) : t(lang, 'capByMorning') }),
     buttons: [
-      { id: `cap_yes_${b.code}`, title: '✅ YES, available' },
-      { id: `cap_no_${b.code}`, title: '❌ NO, busy' },
+      { id: `cap_yes_${b.code}`, title: t(lang, 'capYes') },
+      { id: `cap_no_${b.code}`, title: t(lang, 'capNo') },
     ],
-  }, { notification: true });
+  });
 }
 
 export async function onConfirmed(b) {
   if (b.kind === 'fishing') {
-    await sendMessage(b.customer_phone, {
-      text:
-        `✅ You're booked! Payment received.\n\n${bookingSummary(b)}\n\n` +
-        `Please be at the meeting point 15 minutes early. Bring sunscreen, a hat, snacks and *${usd(b.balance_cash)} in cash* for the captain ` +
-        `(tips are appreciated but optional). We'll send you a reminder the day before. 🐟`,
-    });
-    await sendMessage(b.captain_phone, {
-      text:
-        `🚤 NEW TRIP CONFIRMED — ${b.code}\n` +
-        `Date: ${formatDate(b.date)} ${formatTime(TRIP_START[b.hours])} (${b.hours}h)\n` +
-        `Boat: ${b.boat_name}\nClient: ${b.customer_name} (+${b.customer_phone}), ${b.guests} guests\n` +
-        `Collect in cash: ${usd(b.balance_cash)}\n` +
-        `Reply BLOCK YYYY-MM-DD to close a date, TRIPS to see your upcoming trips.`,
-    }, { notification: true });
-    await sendMessage(config.ownerPhone, {
-      text: `💰 Fishing booking ${b.code} paid: deposit ${usd(b.paid_online)} (your commission). Capt. ${b.captain_name}, ${formatDate(b.date)}.`,
-    }, { notification: true });
+    await toClient(b, t(b.lang, 'bookedFishing', bookingSummary(b), usd(b.balance_cash)));
+    await toCaptain(b, { text: t(b.captain_lang, 'capConfirmed', tripFields(b, b.captain_lang)) });
+    await toOwner(t(owner, 'ownPaidFishing', b.code, usd(b.paid_online), b.captain_name, fmtDate(b.date, owner)));
   } else {
-    await sendMessage(b.customer_phone, {
-      text:
-        `✅ You're all set! Payment received.\n\n${bookingSummary(b)}\n\n` +
-        `We'll message you the day before to agree on a delivery time. Pickup is on the last day. 🏖️`,
-    });
-    await sendMessage(config.ownerPhone, {
-      text: `📦 DELIVERY TASK — ${b.code}\n${bookingSummary(b)}\nClient: ${b.customer_name} (+${b.customer_phone})`,
-    }, { notification: true });
+    await toClient(b, t(b.lang, 'bookedRental', bookingSummary(b)));
+    await toOwner(t(owner, 'ownDelivery', b.code, bookingSummary(b, owner), b.customer_name, b.customer_phone));
   }
 }
 
 export async function onPaymentConflict(b) {
-  await sendMessage(b.customer_phone, {
-    text:
-      `😕 We received your payment for ${b.code}, but your reservation hold had expired and that spot was taken in the meantime. ` +
-      `We'll refund you in full, and someone from our team will contact you shortly to find another option.`,
-  });
-  await sendMessage(config.ownerPhone, {
-    text: `⚠️ REFUND NEEDED — ${b.code} was paid after its hold expired and the slot is gone. Client +${b.customer_phone}. Refund ${usd(b.paid_online)} in Stripe.`,
-  }, { notification: true });
+  await toClient(b, t(b.lang, 'paymentConflict', b.code));
+  await toOwner(t(owner, 'ownRefund', b.code, b.customer_phone, usd(b.paid_online)));
 }
 
 // which: 'day_before' (5 PM the day before) | 'wrap_up' (fishing: evening of the trip; rental: morning of pickup day)
 export async function sendReminder(b, which) {
   if (b.kind === 'fishing' && which === 'day_before') {
-    await sendMessage(b.customer_phone, {
-      text:
-        `⏰ Reminder: your fishing trip is tomorrow!\n\n${bookingSummary(b)}\n\n` +
-        `Be there 15 minutes early and don't forget *${usd(b.balance_cash)} in cash* for Capt. ${b.captain_name}. Questions? Just reply here.`,
-    }, { notification: true });
-    await sendMessage(b.captain_phone, {
-      text: `⏰ Trip tomorrow: ${b.code}, ${formatTime(TRIP_START[b.hours])}, ${b.boat_name}, ${b.guests} guests, client ${b.customer_name} (+${b.customer_phone}). Collect ${usd(b.balance_cash)}.`,
-    }, { notification: true });
+    await toClient(b, t(b.lang, 'reminderFishing', bookingSummary(b), usd(b.balance_cash), b.captain_name), true);
+    await toCaptain(b, { text: t(b.captain_lang, 'capReminder', tripFields(b, b.captain_lang)) });
   } else if (b.kind === 'fishing') {
-    await sendMessage(b.customer_phone, {
-      text: `🐟 Hope you had an amazing day on the water with Capt. ${b.captain_name}! Need beach chairs, umbrellas or baby gear for the rest of your stay? Just type *menu*. 🏖️`,
-    }, { notification: true });
+    await toClient(b, t(b.lang, 'thankYouFishing', b.captain_name), true);
   } else if (which === 'day_before') {
-    await sendMessage(b.customer_phone, {
-      text: `🏖️ Your rental (${b.code}) starts tomorrow! What time works best for delivery to ${b.delivery_address}? Just reply with a time.`,
-    }, { notification: true });
-    await sendMessage(config.ownerPhone, {
-      text: `📦 Deliver tomorrow — ${b.code}\n${bookingSummary(b)}\nClient ${b.customer_name} +${b.customer_phone}`,
-    }, { notification: true });
+    await toClient(b, t(b.lang, 'rentalTomorrow', b.code, b.delivery_address), true);
+    await toOwner(t(owner, 'ownDeliverTomorrow', b.code, bookingSummary(b, owner), b.customer_name, b.customer_phone));
   } else {
-    await sendMessage(b.customer_phone, {
-      text: `🔁 Today is the last day of your rental (${b.code}). We'll come by to pick up the gear — what time works for you? Want to keep it longer? Type *human*.`,
-    }, { notification: true });
-    await sendMessage(config.ownerPhone, {
-      text: `🔁 PICKUP today — ${b.code}\n${b.delivery_address}\nClient ${b.customer_name} +${b.customer_phone}`,
-    }, { notification: true });
+    await toClient(b, t(b.lang, 'rentalPickup', b.code), true);
+    await toOwner(t(owner, 'ownPickup', b.code, b.delivery_address, b.customer_name, b.customer_phone));
   }
+}
+
+// Short notices to captains about a request or trip.
+export async function tellCaptain(b, key) {
+  await toCaptain(b, { text: t(b.captain_lang, key, b.code, fmtDate(b.date, b.captain_lang)) });
 }

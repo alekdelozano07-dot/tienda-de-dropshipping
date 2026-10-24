@@ -55,19 +55,19 @@ export function renderText(message) {
 // WhatsApp only allows free-form messages within 24h of the person's last message.
 // Captain alerts and reminders can fall outside that window, so they are sent as an
 // approved template (one body variable {{1}}) when WHATSAPP_NOTIFY_TEMPLATE is set.
-function templatePayload(to, message) {
+function templatePayload(to, message, lang) {
   const text = renderText(message).replace(/\s*\n+\s*/g, ' · ').replace(/ {4,}/g, ' ');
   return {
     messaging_product: 'whatsapp', to, type: 'template',
     template: {
       name: config.whatsapp.notifyTemplate,
-      language: { code: config.whatsapp.notifyTemplateLang },
+      language: { code: config.whatsapp.notifyTemplateLang[lang] || config.whatsapp.notifyTemplateLang.en },
       components: [{ type: 'body', parameters: [{ type: 'text', text: clip(text, 1000) }] }],
     },
   };
 }
 
-export async function sendMessage(to, message, { notification = false } = {}) {
+export async function sendMessage(to, message, { notification = false, lang = 'en' } = {}) {
   if (typeof message === 'string') message = { text: message };
   if (!to) return;
   getDb().prepare('INSERT INTO messages_log (phone, direction, body) VALUES (?, ?, ?)').run(to, 'out', renderText(message));
@@ -83,7 +83,7 @@ export async function sendMessage(to, message, { notification = false } = {}) {
     method: 'POST',
     headers: { Authorization: `Bearer ${config.whatsapp.token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(
-      notification && config.whatsapp.notifyTemplate ? templatePayload(to, message) : toCloudPayload(to, message),
+      notification && config.whatsapp.notifyTemplate ? templatePayload(to, message, lang) : toCloudPayload(to, message),
     ),
   });
   if (!res.ok) console.error(`WhatsApp send to ${to} failed: ${res.status} ${await res.text()}`);

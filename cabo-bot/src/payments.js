@@ -13,6 +13,7 @@ export async function createCheckout(booking, description) {
     success_url: `${config.publicUrl}/paid?code=${booking.code}`,
     cancel_url: `${config.publicUrl}/cancelled?code=${booking.code}`,
     client_reference_id: booking.code,
+    locale: booking.lang === 'es' ? 'es-419' : 'en',
     'metadata[booking_code]': booking.code,
     'line_items[0][quantity]': '1',
     'line_items[0][price_data][currency]': 'usd',

@@ -1,6 +1,7 @@
 import { getDb } from './db.js';
 import { config } from './config.js';
-import { caboToday, formatDate } from './dates.js';
+import { caboToday } from './dates.js';
+import { fmtDate } from './i18n.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
@@ -24,7 +25,36 @@ export function simplePage(title, html) {
 <h1>${esc(title)}</h1><p>${html}</p></main></body></html>`;
 }
 
-export function adminPage() {
+const ADMIN_TEXT = {
+  en: {
+    title: 'admin', commission: 'Commission', rentals: 'Rental revenue', paid: 'Paid bookings', waiting: 'Chats waiting for you',
+    waitingTitle: '🙋 Chats waiting for a person', phone: 'Phone', step: 'Step', lastActivity: 'Last activity (UTC)', open: 'Open',
+    waitingHelp: 'Answer from your phone with <code>REPLY &lt;phone&gt; message</code> to the bot number, then <code>BOT &lt;phone&gt;</code> to hand back.',
+    upcoming: 'Upcoming bookings', date: 'Date', code: 'Code', type: 'Type', details: 'Details', client: 'Client', online: 'Online',
+    cash: 'Cash', status: 'Status', source: 'Source', lang: 'Lang', none: 'No upcoming bookings', bySource: 'Bookings by source',
+    bookings: 'Bookings', paidOnline: 'Paid online', noData: 'No data yet', qr: 'QR codes',
+    qrHelp: (u) => `Print these for Airbnbs, villas, taxis and Instagram. Make one per place to track it: <code>${u}/qr/airbnb-casa-azul</code>. Add <code>?lang=es</code> for a Spanish greeting.`,
+    captains: 'Captains', name: 'Name', boats: 'Boats', language: 'Language', other: 'Español',
+    statuses: { confirmed: 'confirmed', pending_payment: 'waiting for payment', awaiting_captain: 'waiting for captain' },
+    guests: 'pax',
+  },
+  es: {
+    title: 'administración', commission: 'Comisión', rentals: 'Ingresos por rentas', paid: 'Reservas pagadas', waiting: 'Chats esperándote',
+    waitingTitle: '🙋 Chats que esperan a una persona', phone: 'Teléfono', step: 'Paso', lastActivity: 'Última actividad (UTC)', open: 'Abrir',
+    waitingHelp: 'Contesta desde tu teléfono con <code>RESPONDER &lt;teléfono&gt; mensaje</code> al número del bot, y luego <code>BOT &lt;teléfono&gt;</code> para devolverlo.',
+    upcoming: 'Próximas reservas', date: 'Fecha', code: 'Código', type: 'Tipo', details: 'Detalles', client: 'Cliente', online: 'En línea',
+    cash: 'Efectivo', status: 'Estado', source: 'Origen', lang: 'Idioma', none: 'No hay reservas próximas', bySource: 'Reservas por origen',
+    bookings: 'Reservas', paidOnline: 'Pagado en línea', noData: 'Aún no hay datos', qr: 'Códigos QR',
+    qrHelp: (u) => `Imprímelos para Airbnbs, villas, taxis e Instagram. Haz uno por lugar para medirlo: <code>${u}/qr/airbnb-casa-azul</code>. Agrega <code>?lang=es</code> para que el saludo salga en español.`,
+    captains: 'Capitanes', name: 'Nombre', boats: 'Barcos', language: 'Idioma', other: 'English',
+    statuses: { confirmed: 'confirmada', pending_payment: 'esperando pago', awaiting_captain: 'esperando capitán' },
+    guests: 'pers.',
+  },
+};
+
+export function adminPage(lang = config.ownerLang) {
+  const L = ADMIN_TEXT[lang] ? lang : 'es';
+  const x = ADMIN_TEXT[L];
   const db = getDb();
   const today = caboToday();
   const month = today.slice(0, 7);
@@ -46,47 +76,48 @@ export function adminPage() {
   `).all();
   const human = db.prepare(`SELECT phone, state, updated_at FROM conversations WHERE human_mode = 1 ORDER BY updated_at DESC`).all();
   const captains = db.prepare(`
-    SELECT c.name, c.phone, GROUP_CONCAT(b.name, ', ') AS boats FROM captains c LEFT JOIN boats b ON b.captain_id = c.id
+    SELECT c.name, c.phone, c.lang, GROUP_CONCAT(b.name, ', ') AS boats FROM captains c LEFT JOIN boats b ON b.captain_id = c.id
     WHERE c.active = 1 GROUP BY c.id ORDER BY c.name
   `).all();
   const qrSources = ['airbnb', 'villa', 'taxi', 'instagram'];
 
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(config.businessName)} admin</title><style>${STYLE}</style></head><body><main>
-<h1>${esc(config.businessName)} — admin</h1>
+  return `<!doctype html><html lang="${L}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(config.businessName)} ${x.title}</title><style>${STYLE}</style></head><body><main>
+<p style="float:right"><a href="?lang=${L === 'es' ? 'en' : 'es'}">${x.other}</a></p>
+<h1>${esc(config.businessName)} — ${x.title}</h1>
 <div class="cards">
-  <div class="card"><span class="muted">Commission (${month})</span><b>$${stats.commission}</b></div>
-  <div class="card"><span class="muted">Rental revenue (${month})</span><b>$${stats.rentals}</b></div>
-  <div class="card"><span class="muted">Paid bookings (${month})</span><b>${stats.bookings}</b></div>
-  <div class="card"><span class="muted">Chats waiting for you</span><b>${human.length}</b></div>
+  <div class="card"><span class="muted">${x.commission} (${month})</span><b>$${stats.commission}</b></div>
+  <div class="card"><span class="muted">${x.rentals} (${month})</span><b>$${stats.rentals}</b></div>
+  <div class="card"><span class="muted">${x.paid} (${month})</span><b>${stats.bookings}</b></div>
+  <div class="card"><span class="muted">${x.waiting}</span><b>${human.length}</b></div>
 </div>
 
-${human.length ? `<h2>🙋 Chats waiting for a person</h2><div class="scroll"><table><tr><th>Phone</th><th>Step</th><th>Last activity (UTC)</th><th>Open</th></tr>
+${human.length ? `<h2>${x.waitingTitle}</h2><div class="scroll"><table><tr><th>${x.phone}</th><th>${x.step}</th><th>${x.lastActivity}</th><th>${x.open}</th></tr>
 ${human.map((h) => `<tr><td>+${esc(h.phone)}</td><td>${esc(h.state)}</td><td>${esc(h.updated_at)}</td><td><a href="https://wa.me/${esc(h.phone)}">WhatsApp</a></td></tr>`).join('')}
-</table></div><p class="muted">Answer from your phone with <code>REPLY &lt;phone&gt; message</code> to the bot number, then <code>BOT &lt;phone&gt;</code> to hand back.</p>` : ''}
+</table></div><p class="muted">${x.waitingHelp}</p>` : ''}
 
-<h2>Upcoming bookings</h2><div class="scroll"><table>
-<tr><th>Date</th><th>Code</th><th>Type</th><th>Details</th><th>Client</th><th>Online</th><th>Cash</th><th>Status</th><th>Source</th></tr>
-${upcoming.map((b) => `<tr><td>${esc(formatDate(b.date))}${b.end_date ? ' → ' + esc(formatDate(b.end_date)) : ''}</td><td>${esc(b.code)}</td>
+<h2>${x.upcoming}</h2><div class="scroll"><table>
+<tr><th>${x.date}</th><th>${x.code}</th><th>${x.type}</th><th>${x.details}</th><th>${x.client}</th><th>${x.online}</th><th>${x.cash}</th><th>${x.status}</th><th>${x.source}</th><th>${x.lang}</th></tr>
+${upcoming.map((b) => `<tr><td>${esc(fmtDate(b.date, L))}${b.end_date ? ' → ' + esc(fmtDate(b.end_date, L)) : ''}</td><td>${esc(b.code)}</td>
 <td>${b.kind === 'fishing' ? '🎣' : '🏖️'}</td>
-<td>${b.kind === 'fishing' ? `${esc(b.boat_name)} · Capt. ${esc(b.captain_name)} · ${b.hours}h · ${b.guests} pax` : esc(b.delivery_address)}</td>
+<td>${b.kind === 'fishing' ? `${esc(b.boat_name)} · Cap. ${esc(b.captain_name)} · ${b.hours}h · ${b.guests} ${x.guests}` : esc(b.delivery_address)}</td>
 <td>${esc(b.customer_name)}<br><span class="muted">+${esc(b.customer_phone)}</span></td><td>$${b.paid_online}</td><td>$${b.balance_cash}</td>
-<td><span class="tag">${esc(b.status)}</span></td><td>${esc(b.source || 'direct')}</td></tr>`).join('') || '<tr><td colspan="9" class="muted">No upcoming bookings</td></tr>'}
+<td><span class="tag">${esc(x.statuses[b.status] || b.status)}</span></td><td>${esc(b.source || 'direct')}</td><td>${esc(b.lang.toUpperCase())}</td></tr>`).join('') || `<tr><td colspan="10" class="muted">${x.none}</td></tr>`}
 </table></div>
 
-<h2>Bookings by source</h2><div class="scroll"><table><tr><th>Source</th><th>Bookings</th><th>Paid online</th></tr>
-${sources.map((s) => `<tr><td>${esc(s.source)}</td><td>${s.n}</td><td>$${s.revenue}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">No data yet</td></tr>'}
+<h2>${x.bySource}</h2><div class="scroll"><table><tr><th>${x.source}</th><th>${x.bookings}</th><th>${x.paidOnline}</th></tr>
+${sources.map((s) => `<tr><td>${esc(s.source)}</td><td>${s.n}</td><td>$${s.revenue}</td></tr>`).join('') || `<tr><td colspan="3" class="muted">${x.noData}</td></tr>`}
 </table></div>
 
-<h2>QR codes</h2>
-<p class="muted">Print these for Airbnbs, villas, taxis and Instagram. Make one per place to track it: <code>${esc(config.publicUrl)}/qr/airbnb-casa-azul</code></p>
+<h2>${x.qr}</h2>
+<p class="muted">${x.qrHelp(esc(config.publicUrl))}</p>
 <div class="cards">${qrSources.map((s) => {
     const link = `${config.publicUrl}/qr/${s}`;
     return `<div class="card" style="text-align:center"><img alt="QR ${esc(s)}" width="150" height="150" src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(link)}"><br><b style="font-size:15px">${esc(s)}</b><span class="muted">${esc(link)}</span></div>`;
   }).join('')}</div>
 
-<h2>Captains</h2><div class="scroll"><table><tr><th>Name</th><th>WhatsApp</th><th>Boats</th></tr>
-${captains.map((c) => `<tr><td>${esc(c.name)}</td><td>+${esc(c.phone)}</td><td>${esc(c.boats)}</td></tr>`).join('')}
+<h2>${x.captains}</h2><div class="scroll"><table><tr><th>${x.name}</th><th>WhatsApp</th><th>${x.boats}</th><th>${x.language}</th></tr>
+${captains.map((c) => `<tr><td>${esc(c.name)}</td><td>+${esc(c.phone)}</td><td>${esc(c.boats)}</td><td>${esc(c.lang.toUpperCase())}</td></tr>`).join('')}
 </table></div>
 </main></body></html>`;
 }
@@ -101,11 +132,11 @@ export function devChatPage() {
   form { display:flex; gap:8px; margin-top:10px } input { flex:1; font:inherit; padding:10px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink) }
   .who { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; align-items:center }
 </style></head><body><main style="max-width:640px">
-<h1>WhatsApp bot simulator</h1>
-<div class="who"><label>Chatting as phone <input id="phone" value="15551234567" style="width:160px"></label>
-<span class="muted">Use the captain's or owner's number to test their commands.</span></div>
+<h1>WhatsApp bot simulator / Simulador</h1>
+<div class="who"><label>Phone / Teléfono <input id="phone" value="15551234567" style="width:160px"></label>
+<span class="muted">Use a captain's or the owner's number to test their commands. / Usa el número de un capitán o del dueño para probar sus comandos.</span></div>
 <div id="log"></div>
-<form id="f"><input id="t" placeholder="Type a message… (try: hi)" autocomplete="off"><button>Send</button></form>
+<form id="f"><input id="t" placeholder="Type a message… / Escribe un mensaje… (hi / hola)" autocomplete="off"><button>Send / Enviar</button></form>
 <script>
 let since = 0;
 const log = document.getElementById('log');

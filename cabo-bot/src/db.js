@@ -15,7 +15,23 @@ export function openDb(path) {
   db = new DatabaseSync(path);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
   db.exec(SCHEMA);
+  migrate(db);
   return db;
+}
+
+// Columns added after the first release; ALTER TABLE fails harmlessly if they already exist.
+const MIGRATIONS = [
+  "ALTER TABLE captains ADD COLUMN lang TEXT NOT NULL DEFAULT 'es'",
+  'ALTER TABLE boats ADD COLUMN description_es TEXT',
+  'ALTER TABLE rental_items ADD COLUMN name_es TEXT',
+  "ALTER TABLE bookings ADD COLUMN lang TEXT NOT NULL DEFAULT 'en'",
+  'ALTER TABLE conversations ADD COLUMN lang TEXT',
+];
+
+function migrate(db) {
+  for (const sql of MIGRATIONS) {
+    try { db.exec(sql); } catch (e) { if (!/duplicate column/i.test(e.message)) throw e; }
+  }
 }
 
 const SCHEMA = `

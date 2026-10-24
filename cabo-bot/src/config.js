@@ -5,6 +5,7 @@ export const config = {
   publicUrl: (env.PUBLIC_URL || `http://localhost:${env.PORT || 3000}`).replace(/\/$/, ''),
   businessName: env.BUSINESS_NAME || 'Cabo Fish & Beach',
   ownerPhone: env.OWNER_PHONE || '',
+  ownerLang: env.OWNER_LANG === 'en' ? 'en' : 'es',
   botPhone: env.BOT_PHONE || '',
   adminPassword: env.ADMIN_PASSWORD || 'change-me',
   dbPath: env.DB_PATH || './data/cabo.db',
@@ -21,7 +22,8 @@ export const config = {
     verifyToken: env.WHATSAPP_VERIFY_TOKEN || '',
     appSecret: env.WHATSAPP_APP_SECRET || '',
     notifyTemplate: env.WHATSAPP_NOTIFY_TEMPLATE || '',
-    notifyTemplateLang: env.WHATSAPP_NOTIFY_TEMPLATE_LANG || 'en',
+    // The same template approved in both languages
+    notifyTemplateLang: { en: env.WHATSAPP_NOTIFY_TEMPLATE_LANG_EN || 'en', es: env.WHATSAPP_NOTIFY_TEMPLATE_LANG_ES || 'es_MX' },
   },
   stripe: {
     secretKey: env.STRIPE_SECRET_KEY || '',

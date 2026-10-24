@@ -39,7 +39,7 @@ export function availableBoats(date, hours, guests, { excludeBookingId = 0 } = {
 }
 
 // Creates a fishing request that waits for the captain to confirm until `expiresAt`.
-export function createFishingRequest({ phone, name, source, date, hours, guests, boatId, expiresAt }) {
+export function createFishingRequest({ phone, name, source, lang = 'en', date, hours, guests, boatId, expiresAt }) {
   const db = getDb();
   db.exec('BEGIN IMMEDIATE');
   try {
@@ -49,10 +49,10 @@ export function createFishingRequest({ phone, name, source, date, hours, guests,
     const deposit = depositFor(total);
     const code = newCode();
     db.prepare(`
-      INSERT INTO bookings (code, kind, status, customer_phone, customer_name, source, date, boat_id, hours, guests,
+      INSERT INTO bookings (code, kind, status, customer_phone, customer_name, source, lang, date, boat_id, hours, guests,
                             total, paid_online, balance_cash, hold_expires_at)
-      VALUES (?, 'fishing', 'awaiting_captain', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(code, phone, name, source, date, boatId, hours, guests, total, deposit, total - deposit, sqlTime(expiresAt));
+      VALUES (?, 'fishing', 'awaiting_captain', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(code, phone, name, source, lang, date, boatId, hours, guests, total, deposit, total - deposit, sqlTime(expiresAt));
     db.exec('COMMIT');
     return getBooking(code);
   } catch (e) {
@@ -96,7 +96,7 @@ export function rentalQuote(items, start, end) {
   return { days, lines, delivery: config.rentalDeliveryFee, total: subtotal + config.rentalDeliveryFee };
 }
 
-export function createRentalHold({ phone, name, source, start, end, items, address }) {
+export function createRentalHold({ phone, name, source, lang = 'en', start, end, items, address }) {
   const db = getDb();
   db.exec('BEGIN IMMEDIATE');
   try {
@@ -106,10 +106,10 @@ export function createRentalHold({ phone, name, source, start, end, items, addre
     const quote = rentalQuote(items, start, end);
     const code = newCode();
     const { lastInsertRowid } = db.prepare(`
-      INSERT INTO bookings (code, kind, status, customer_phone, customer_name, source, date, end_date, delivery_address,
+      INSERT INTO bookings (code, kind, status, customer_phone, customer_name, source, lang, date, end_date, delivery_address,
                             total, paid_online, balance_cash, hold_expires_at)
-      VALUES (?, 'rental', 'pending_payment', ?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now', ?))
-    `).run(code, phone, name, source, start, end, address, quote.total, quote.total, `+${config.holdMinutes} minutes`);
+      VALUES (?, 'rental', 'pending_payment', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now', ?))
+    `).run(code, phone, name, source, lang, start, end, address, quote.total, quote.total, `+${config.holdMinutes} minutes`);
     const ins = db.prepare('INSERT INTO booking_items (booking_id, item_id, qty) VALUES (?, ?, ?)');
     for (const { itemId, qty } of items) ins.run(lastInsertRowid, itemId, qty);
     db.exec('COMMIT');
@@ -125,13 +125,14 @@ export function createRentalHold({ phone, name, source, start, end, items, addre
 export function getBooking(code) {
   const db = getDb();
   const b = db.prepare(`
-    SELECT bk.*, bt.name AS boat_name, bt.meeting_point, bt.length_ft, c.name AS captain_name, c.phone AS captain_phone
+    SELECT bk.*, bt.name AS boat_name, bt.meeting_point, bt.length_ft,
+           c.name AS captain_name, c.phone AS captain_phone, c.lang AS captain_lang
     FROM bookings bk LEFT JOIN boats bt ON bt.id = bk.boat_id LEFT JOIN captains c ON c.id = bt.captain_id
     WHERE bk.code = ?
   `).get(code);
   if (b && b.kind === 'rental') {
     b.items = db.prepare(`
-      SELECT ri.name, ri.price_per_day, bi.qty, bi.item_id FROM booking_items bi JOIN rental_items ri ON ri.id = bi.item_id
+      SELECT ri.name, ri.name_es, ri.price_per_day, bi.qty, bi.item_id FROM booking_items bi JOIN rental_items ri ON ri.id = bi.item_id
       WHERE bi.booking_id = ?
     `).all(b.id);
   }

@@ -2,31 +2,37 @@ import { getDb } from './db.js';
 import { config } from './config.js';
 import { sendMessage } from './whatsapp.js';
 import { createCheckout } from './payments.js';
-import { addDays, caboInstant, caboToday, captainDeadline, formatDate, formatTime, parseDate, TRIP_START } from './dates.js';
+import { addDays, caboInstant, caboToday, captainDeadline, parseDate, TRIP_START } from './dates.js';
 import {
   availableBoats, createFishingRequest, createRentalHold, getBooking, itemAvailability,
   rentalItems, rentalQuote, setPaymentRef, setStatus, upcomingForPhone,
 } from './bookings.js';
-import { askCaptain, bookingSummary } from './notify.js';
+import { askCaptain, bookingSummary, tellCaptain } from './notify.js';
 import { handleCaptainMessage, handleOwnerMessage, isCaptain } from './staff.js';
+import { boatDescription, detectLang, fmtDate, fmtTime, itemName, langSwitch, t } from './i18n.js';
 
 const usd = (n) => `$${n.toLocaleString('en-US')}`;
 const MAX_DAYS_AHEAD = 180;
+const owner = config.ownerLang;
 
 // ---------- Conversation storage ----------
 
 function loadConversation(phone) {
   const row = getDb().prepare('SELECT * FROM conversations WHERE phone = ?').get(phone);
-  if (!row) return { phone, state: 'new', data: {}, human_mode: 0, source: null };
+  if (!row) return { phone, state: 'new', data: {}, human_mode: 0, source: null, lang: null };
   return { ...row, data: JSON.parse(row.data) };
 }
 
 function saveConversation(c) {
   getDb().prepare(`
-    INSERT INTO conversations (phone, state, data, human_mode, source, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'))
+    INSERT INTO conversations (phone, state, data, human_mode, source, lang, updated_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(phone) DO UPDATE SET state = excluded.state, data = excluded.data, human_mode = excluded.human_mode,
-      source = excluded.source, updated_at = excluded.updated_at
-  `).run(c.phone, c.state, JSON.stringify(c.data), c.human_mode, c.source);
+      source = excluded.source, lang = excluded.lang, updated_at = excluded.updated_at
+  `).run(c.phone, c.state, JSON.stringify(c.data), c.human_mode, c.source, c.lang);
+}
+
+export function customerLang(phone) {
+  return loadConversation(phone).lang || 'en';
 }
 
 export function setHumanMode(phone, on) {
@@ -46,27 +52,36 @@ async function ask(c, message, options) {
   } else {
     await sendMessage(c.phone, {
       text: message.text,
-      list: { button: message.listButton || 'See options', title: message.listTitle, rows: options },
+      list: { button: message.listButton || T(c, 'seeOptions'), title: message.listTitle || T(c, 'options'), rows: options },
     });
   }
 }
 
+const norm = (s) => String(s).trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+
 function pick(c, input) {
   const opts = c.data.options || [];
   if (input.replyId) return opts.find((o) => o.id === input.replyId)?.id || null;
-  const t = input.text.trim().toLowerCase();
-  const n = Number(t);
+  const text = norm(input.text);
+  const n = Number(text);
   if (Number.isInteger(n) && n >= 1 && n <= opts.length) return opts[n - 1].id;
-  return opts.find((o) => o.title.toLowerCase() === t)?.id
-    || opts.find((o) => t.length >= 3 && o.title.toLowerCase().includes(t))?.id
+  return opts.find((o) => norm(o.title) === text)?.id
+    || opts.find((o) => text.length >= 3 && norm(o.title).includes(text))?.id
     || null;
 }
 
+const T = (c, key, ...args) => t(c.lang, key, ...args);
 const say = (c, text) => sendMessage(c.phone, { text });
+const D = (c, date) => fmtDate(date, c.lang);
 
 function firstName(name) {
   return name ? name.split(/\s+/)[0] : '';
 }
+
+const HUMAN = /^(human|agent|person|operator|help me|talk to (a )?(human|person|someone)|humano|persona|agente|asesor|ayuda|hablar con (alguien|una persona|un humano))$/;
+const MENU = /^(menu|start|restart|main menu|back|inicio|volver|regresar|menu principal)$/;
+const MY_BOOKINGS = /^(my bookings?|my trips?|my reservations?|mis reservas?|mis viajes?|mi reserva(cion)?)$/;
+const CANCEL = /^(cancel|stop|cancelar|parar|alto)$/;
 
 // ---------- Entry point ----------
 
@@ -78,7 +93,8 @@ export async function handleIncoming({ from, name, text = '', replyId = null }) 
 
   const c = loadConversation(from);
   const input = { text: text || '', replyId, profileName: name };
-  const lower = input.text.trim().toLowerCase();
+  const lower = norm(input.text);
+  if (!c.lang) c.lang = detectLang(input.text, from);
 
   // Track which QR / channel the customer came from: wa.me links prefill "... (ref: airbnb-casa-azul)"
   const ref = input.text.match(/\(ref:\s*([\w-]+)\)/i);
@@ -86,20 +102,29 @@ export async function handleIncoming({ from, name, text = '', replyId = null }) 
 
   if (c.human_mode) {
     // The owner is handling this chat by hand: forward and stay quiet.
-    await sendMessage(config.ownerPhone, { text: `💬 +${from}${name ? ` (${name})` : ''}: ${input.text}\n\nReply with: REPLY ${from} your message\nHand back to bot: BOT ${from}` });
+    await sendMessage(config.ownerPhone, { text: t(owner, 'ownForward', from, name, input.text, c.lang) }, { lang: owner });
     saveConversation(c);
     return;
   }
 
   try {
-    if (/^(human|agent|person|operator|help me|talk to (a )?(human|person|someone))$/.test(lower) || replyId === 'human') {
-      await escalate(c, input, 'Customer asked for a person');
-    } else if (/^(menu|start|restart|main menu|back)$/.test(lower) || replyId === 'menu') {
+    const switchTo = langSwitch(input.text);
+    if (switchTo) {
+      c.lang = switchTo;
+      // Reminders for upcoming bookings follow the new language too.
+      getDb().prepare(`UPDATE bookings SET lang = ? WHERE customer_phone = ? AND status IN ('awaiting_captain', 'pending_payment', 'confirmed')`)
+        .run(switchTo, c.phone);
+      await say(c, T(c, 'languageSet'));
+      if (STATES[c.state] && !['new', 'menu'].includes(c.state)) await repeatStep(c);
+      else await showMenu(c);
+    } else if (HUMAN.test(lower) || replyId === 'human') {
+      await escalate(c, input, t(owner, 'reasonAsked'));
+    } else if (MENU.test(lower) || replyId === 'menu') {
       await showMenu(c);
-    } else if (/^(my bookings?|my trips?|my reservations?)$/.test(lower) || replyId === 'mybookings') {
+    } else if (MY_BOOKINGS.test(lower) || replyId === 'mybookings') {
       await showMyBookings(c);
-    } else if (/^(cancel|stop)$/.test(lower) && !['awaiting_payment', 'awaiting_captain'].includes(c.state)) {
-      await say(c, 'No problem, I cleared that. Type *menu* anytime to start again.');
+    } else if (CANCEL.test(lower) && !['awaiting_payment', 'awaiting_captain'].includes(c.state)) {
+      await say(c, T(c, 'cleared'));
       c.state = 'menu';
       c.data = { name: c.data.name };
     } else if (STATES[c.state]) {
@@ -109,63 +134,76 @@ export async function handleIncoming({ from, name, text = '', replyId = null }) 
     }
   } catch (err) {
     console.error('Bot error', err);
-    await escalate(c, input, `Bot error: ${err.message}`);
+    await escalate(c, input, t(owner, 'reasonError', err.message));
   }
   saveConversation(c);
 }
 
+// After a language switch mid-flow, ask the current question again in the new language.
+async function repeatStep(c) {
+  const d = c.data;
+  switch (c.state) {
+    case 'fish_date': return say(c, T(c, 'fishStart'));
+    case 'fish_guests': return say(c, T(c, 'askGuests', D(c, d.date)));
+    case 'fish_hours': return STATES.fish_guests(c, { text: String(d.guests) });
+    case 'fish_boat': return showBoats(c);
+    case 'ask_name': return askName(c, d.after_name);
+    case 'fish_confirm': return showFishingSummary(c);
+    case 'rent_start': return say(c, T(c, 'rentStart'));
+    case 'rent_days': return say(c, T(c, 'askDays', D(c, d.start)));
+    case 'rent_items':
+    case 'rent_qty': return showItems(c);
+    case 'rent_address': return say(c, T(c, 'askAddress'));
+    case 'rent_confirm': return showRentalSummary(c);
+    default: return STATES[c.state](c, { text: '' });
+  }
+}
+
 // ---------- Menu ----------
+
+const menuOptions = (c) => [
+  { id: 'fish', title: T(c, 'menuFish') },
+  { id: 'rent', title: T(c, 'menuRent') },
+  { id: 'human', title: T(c, 'talkToPerson') },
+];
 
 async function welcome(c, input) {
   c.data.name = c.data.name || input.profileName || null;
-  const hi = firstName(c.data.name);
   c.state = 'menu';
-  await ask(c, {
-    text:
-      `Hi${hi ? ' ' + hi : ''}! 👋 Welcome to *${config.businessName}* in Los Cabos.\n\n` +
-      `🎣 Book a *fishing charter* with trusted local captains\n` +
-      `🏖️ Rent *beach & baby gear* delivered to your villa\n\n` +
-      `What can I help you with?`,
-  }, MENU_OPTIONS);
+  await ask(c, { text: T(c, 'welcome', firstName(c.data.name), config.businessName) }, menuOptions(c));
 }
-
-const MENU_OPTIONS = [
-  { id: 'fish', title: '🎣 Fishing trip' },
-  { id: 'rent', title: '🏖️ Beach/baby rental' },
-  { id: 'human', title: '🙋 Talk to a person' },
-];
 
 async function showMenu(c) {
   c.state = 'menu';
   c.data = { name: c.data.name };
-  await ask(c, { text: 'What would you like to do?' }, MENU_OPTIONS);
+  await ask(c, { text: T(c, 'whatToDo') }, menuOptions(c));
 }
 
 async function showMyBookings(c) {
   const list = upcomingForPhone(c.phone);
-  if (!list.length) await say(c, "You don't have any upcoming bookings yet. Type *menu* to book one!");
-  else await say(c, list.map(bookingSummary).join('\n\n') + '\n\nNeed to change something? Type *human*.');
+  if (!list.length) await say(c, T(c, 'noBookings'));
+  else await say(c, list.map((b) => bookingSummary(b, c.lang)).join('\n\n') + '\n\n' + T(c, 'bookingsFooter'));
 }
 
 async function escalate(c, input, reason) {
   c.human_mode = 1;
-  await say(c, "I'm connecting you with our team 🙋 Someone will reply here shortly (usually within a few minutes, 7 AM–9 PM Cabo time).");
+  await say(c, T(c, 'connecting'));
   await sendMessage(config.ownerPhone, {
-    text:
-      `🙋 HUMAN NEEDED — +${c.phone}${input.profileName ? ` (${input.profileName})` : ''}\n` +
-      `Reason: ${reason}\nStep: ${c.state}\nLast message: "${input.text}"\n\n` +
-      `Reply with: REPLY ${c.phone} your message\nHand back to bot: BOT ${c.phone}`,
-  }, { notification: true });
+    text: t(owner, 'ownHuman', { phone: c.phone, name: input.profileName, reason, state: c.state, text: input.text, lang: c.lang }),
+  }, { notification: true, lang: owner });
 }
 
 // ---------- States ----------
+
+const FISH_WORDS = /fish|boat|charter|marlin|tuna|dorado|pesca|pescar|barco|lancha|atun/;
+const RENT_WORDS = /rent|beach|umbrella|chair|cooler|stroller|crib|baby|car seat|renta|playa|sombrilla|silla|hielera|carriola|cuna|bebe/;
 
 const STATES = {
   new: welcome,
 
   async menu(c, input) {
-    const choice = pick(c, input) || (/fish|boat|charter|marlin|tuna|dorado/.test(input.text.toLowerCase()) ? 'fish'
-      : /rent|beach|umbrella|chair|cooler|stroller|crib|baby|car seat/.test(input.text.toLowerCase()) ? 'rent' : null);
+    const text = norm(input.text);
+    const choice = pick(c, input) || (FISH_WORDS.test(text) ? 'fish' : RENT_WORDS.test(text) ? 'rent' : null);
     if (choice === 'fish') return startFishing(c);
     if (choice === 'rent') return startRental(c);
     return welcome(c, input);
@@ -174,40 +212,38 @@ const STATES = {
   // ----- Fishing -----
 
   async fish_date(c, input) {
-    const date = readFutureDate(input.text);
+    const date = readFutureDate(c, input.text);
     if (date.error) return say(c, date.error);
     c.data.date = date.value;
     delete c.data.excludeBoats;
     c.state = 'fish_guests';
-    await say(c, `${formatDate(date.value)} 👍 How many people will be fishing (including kids)?`);
+    await say(c, T(c, 'askGuests', D(c, date.value)));
   },
 
   async fish_guests(c, input) {
     const n = parseInt(input.text, 10);
-    if (!(n >= 1 && n <= 30)) return say(c, 'Please send the number of guests, for example *4*.');
+    if (!(n >= 1 && n <= 30)) return say(c, T(c, 'guestsInvalid'));
     c.data.guests = n;
     c.state = 'fish_hours';
-    await ask(c, {
-      text: `How long would you like to fish?\n\n• *4 hours* — great for first-timers and families\n• *6 hours* — more time to find the big ones\n• *8 hours* — full day, best for marlin & tuna`,
-    }, [
-      { id: 'h4', title: '4 hours' },
-      { id: 'h6', title: '6 hours' },
-      { id: 'h8', title: '8 hours (full day)' },
+    await ask(c, { text: T(c, 'askHours') }, [
+      { id: 'h4', title: T(c, 'h4') },
+      { id: 'h6', title: T(c, 'h6') },
+      { id: 'h8', title: T(c, 'h8') },
     ]);
   },
 
   async fish_hours(c, input) {
     const id = pick(c, input) || ({ 4: 'h4', 6: 'h6', 8: 'h8' })[parseInt(input.text, 10)];
-    if (!id) return say(c, 'Please choose *4*, *6* or *8* hours.');
+    if (!id) return say(c, T(c, 'hoursInvalid'));
     c.data.hours = Number(id.slice(1));
     return showBoats(c);
   },
 
   async fish_boat(c, input) {
     const id = pick(c, input);
-    if (id === 'otherdate') { c.state = 'fish_date'; return say(c, 'Sure! What other date works for you?'); }
+    if (id === 'otherdate') { c.state = 'fish_date'; return say(c, T(c, 'otherDatePrompt')); }
     if (id === 'otherhours') { c.state = 'fish_guests'; return STATES.fish_guests(c, { text: String(c.data.guests) }); }
-    if (!id?.startsWith('boat')) return say(c, 'Please pick one of the boats from the list (or type the number).');
+    if (!id?.startsWith('boat')) return say(c, T(c, 'pickBoat'));
     c.data.boatId = Number(id.slice(4));
     return askName(c, 'fish_confirm');
   },
@@ -215,7 +251,7 @@ const STATES = {
   async ask_name(c, input) {
     const id = pick(c, input);
     const name = id === 'usename' ? c.data.name : input.text.trim();
-    if (!name || name.length < 2 || name.length > 60) return say(c, 'Please send the full name for the reservation.');
+    if (!name || name.length < 2 || name.length > 60) return say(c, T(c, 'nameInvalid'));
     c.data.name = name;
     c.state = c.data.after_name;
     return c.state === 'fish_confirm' ? showFishingSummary(c) : showRentalSummary(c);
@@ -224,66 +260,64 @@ const STATES = {
   async fish_confirm(c, input) {
     const id = pick(c, input);
     if (id === 'change') return startFishing(c);
-    if (id !== 'pay') return say(c, 'Tap *Confirm & pay* to lock the boat, or *Change* to edit.');
+    if (id !== 'pay') return say(c, T(c, 'confirmFishHint'));
     const expiresAt = captainDeadline(config.captainReplyMinutes);
     // Too close to departure to wait for the captain (e.g. booked late at night for tomorrow morning).
     const departure = caboInstant(c.data.date, TRIP_START[c.data.hours]);
     if (departure.getTime() - expiresAt.getTime() < 3 * 60 * 60 * 1000) {
-      return escalate(c, input, `Trip too soon to auto-confirm with the captain (${formatDate(c.data.date)}, boat #${c.data.boatId}, ${c.data.hours}h, ${c.data.guests} guests)`);
+      return escalate(c, input, t(owner, 'reasonTooSoon', fmtDate(c.data.date, owner), c.data.boatId, c.data.hours, c.data.guests));
     }
     const b = createFishingRequest({
-      phone: c.phone, name: c.data.name, source: c.source,
+      phone: c.phone, name: c.data.name, source: c.source, lang: c.lang,
       date: c.data.date, hours: c.data.hours, guests: c.data.guests, boatId: c.data.boatId, expiresAt,
     });
     if (!b) {
-      await say(c, 'Oh no, someone just booked that boat 😕 Here is what is still available:');
+      await say(c, T(c, 'boatJustTakenList'));
       return showBoats(c);
     }
     await askCaptain(b);
     c.state = 'awaiting_captain';
     c.data.code = b.code;
     const night = expiresAt.getTime() - Date.now() > (config.captainReplyMinutes + 1) * 60_000;
-    await say(c, night
-      ? `🙌 Got it! Our captains are out until 7 AM, so Capt. ${b.captain_name} will confirm the boat first thing in the morning. You'll get the payment link right here — nothing to pay yet.`
-      : `🙌 Great choice! I'm checking with Capt. ${b.captain_name} that the boat is ready for you. This usually takes a few minutes — you'll get the payment link right here. Nothing to pay yet.`);
+    await say(c, T(c, night ? 'checkingCaptainNight' : 'checkingCaptain', b.captain_name));
   },
 
   async awaiting_captain(c, input) {
     const b = getBooking(c.data.code);
     if (!b || b.status !== 'awaiting_captain') return showMenu(c);
     const id = pick(c, input);
-    if (id === 'cancelreq' || /^(cancel|stop)$/i.test(input.text.trim())) {
+    if (id === 'cancelreq' || CANCEL.test(norm(input.text))) {
       setStatus(b.code, 'cancelled');
-      await sendMessage(b.captain_phone, { text: `❌ Request ${b.code} (${formatDate(b.date)}) was cancelled by the client. No action needed.` });
-      await say(c, 'Request cancelled — nothing was charged.');
+      await tellCaptain(b, 'capCancelledByClient');
+      await say(c, T(c, 'requestCancelled'));
       return showMenu(c);
     }
     if (id === 'otherboat') {
       setStatus(b.code, 'cancelled');
-      await sendMessage(b.captain_phone, { text: `❌ Request ${b.code} (${formatDate(b.date)}) was cancelled by the client. No action needed.` });
+      await tellCaptain(b, 'capCancelledByClient');
       c.data = { ...restoreTrip(b), name: c.data.name, excludeBoats: [b.boat_id] };
       return showBoats(c);
     }
-    await ask(c, { text: `Still waiting for Capt. ${b.captain_name} to confirm ${b.code} ⏳ You'll get the payment link here as soon as they reply.` }, [
-      { id: 'otherboat', title: 'Pick another boat' },
-      { id: 'cancelreq', title: 'Cancel request' },
-      { id: 'human', title: 'Talk to a person' },
+    await ask(c, { text: T(c, 'waitingCaptain', b.captain_name, b.code) }, [
+      { id: 'otherboat', title: T(c, 'otherBoat') },
+      { id: 'cancelreq', title: T(c, 'cancelRequest') },
+      { id: 'human', title: T(c, 'talkToPerson') },
     ]);
   },
 
   // ----- Rentals -----
 
   async rent_start(c, input) {
-    const date = readFutureDate(input.text);
+    const date = readFutureDate(c, input.text);
     if (date.error) return say(c, date.error);
     c.data.start = date.value;
     c.state = 'rent_days';
-    await say(c, `Starting ${formatDate(date.value)} 👍 For how many days do you need the gear?`);
+    await say(c, T(c, 'askDays', D(c, date.value)));
   },
 
   async rent_days(c, input) {
     const n = parseInt(input.text, 10);
-    if (!(n >= 1 && n <= 30)) return say(c, 'Please send the number of days, for example *5*.');
+    if (!(n >= 1 && n <= 30)) return say(c, T(c, 'daysInvalid'));
     c.data.end = addDays(c.data.start, n - 1);
     c.data.cart = [];
     return showItems(c);
@@ -294,27 +328,27 @@ const STATES = {
     if (id === 'checkout') {
       if (!c.data.cart.length) return showItems(c);
       c.state = 'rent_address';
-      return say(c, '🚚 Where should we deliver? Send the villa/Airbnb name and address, or share your location 📍.');
+      return say(c, T(c, 'askAddress'));
     }
-    if (!id?.startsWith('item')) return say(c, 'Please pick an item from the list (or type its number).');
+    if (!id?.startsWith('item')) return say(c, T(c, 'pickItem'));
     const itemId = Number(id.slice(4));
     const free = itemAvailability(itemId, c.data.start, c.data.end) - (c.data.cart.find((x) => x.itemId === itemId)?.qty || 0);
     const item = rentalItems().find((i) => i.id === itemId);
     if (free <= 0) {
-      await say(c, `Sorry, *${item.name}* is fully booked for those dates.`);
+      await say(c, T(c, 'itemSoldOut', itemName(item, c.lang)));
       return showItems(c);
     }
     c.data.pendingItem = itemId;
     c.data.pendingMax = free;
     c.state = 'rent_qty';
     const opts = [1, 2, 3].filter((n) => n <= free).map((n) => ({ id: `q${n}`, title: String(n) }));
-    await ask(c, { text: `How many *${item.name}*? (${free} available${free > 3 ? ' — you can also type a number' : ''})` }, opts);
+    await ask(c, { text: T(c, 'askQty', itemName(item, c.lang), free) }, opts);
   },
 
   async rent_qty(c, input) {
     const id = pick(c, input);
     const n = id ? Number(id.slice(1)) : parseInt(input.text, 10);
-    if (!(n >= 1 && n <= c.data.pendingMax)) return say(c, `Please send a number from 1 to ${c.data.pendingMax}.`);
+    if (!(n >= 1 && n <= c.data.pendingMax)) return say(c, T(c, 'qtyInvalid', c.data.pendingMax));
     const line = c.data.cart.find((x) => x.itemId === c.data.pendingItem);
     if (line) line.qty += n;
     else c.data.cart.push({ itemId: c.data.pendingItem, qty: n });
@@ -325,7 +359,7 @@ const STATES = {
 
   async rent_address(c, input) {
     const addr = input.text.trim();
-    if (addr.length < 6) return say(c, 'Please send the full delivery address (villa/Airbnb name, street, area), or share your location 📍.');
+    if (addr.length < 6) return say(c, T(c, 'addressInvalid'));
     c.data.address = addr.slice(0, 300);
     return askName(c, 'rent_confirm');
   },
@@ -333,17 +367,17 @@ const STATES = {
   async rent_confirm(c, input) {
     const id = pick(c, input);
     if (id === 'change') return startRental(c);
-    if (id !== 'pay') return say(c, 'Tap *Confirm & pay* to reserve the gear, or *Change* to edit.');
+    if (id !== 'pay') return say(c, T(c, 'confirmRentHint'));
     const b = createRentalHold({
-      phone: c.phone, name: c.data.name, source: c.source,
+      phone: c.phone, name: c.data.name, source: c.source, lang: c.lang,
       start: c.data.start, end: c.data.end, items: c.data.cart, address: c.data.address,
     });
     if (!b) {
-      await say(c, 'Sorry, one of the items just got booked by someone else 😕 Let\'s pick again.');
+      await say(c, T(c, 'itemJustTaken'));
       c.data.cart = [];
       return showItems(c);
     }
-    return sendPaymentLink(c, b, `Beach & baby rental ${b.code}`);
+    return sendPaymentLink(c, b, t(b.lang, 'stripeRental', b.code));
   },
 
   // ----- After the payment link -----
@@ -351,44 +385,42 @@ const STATES = {
   async awaiting_payment(c, input) {
     const b = getBooking(c.data.code);
     if (!b || b.status !== 'pending_payment') {
-      if (b?.status === 'confirmed') return say(c, `Your booking ${b.code} is confirmed ✅ Type *my bookings* to see it or *menu* for something else.`);
-      await say(c, 'That payment link has expired.');
+      if (b?.status === 'confirmed') return say(c, T(c, 'alreadyConfirmed', b.code));
+      await say(c, T(c, 'linkExpired'));
       return showMenu(c);
     }
     const id = pick(c, input);
-    if (id === 'resend') return say(c, `Here's your payment link again: ${c.data.payUrl}`);
-    if (id === 'cancelhold' || /^(cancel|stop)$/i.test(input.text.trim())) {
+    if (id === 'resend') return say(c, T(c, 'resendLink', c.data.payUrl));
+    if (id === 'cancelhold' || CANCEL.test(norm(input.text))) {
       setStatus(b.code, 'cancelled');
-      await say(c, 'Reservation cancelled — nothing was charged.');
+      await say(c, T(c, 'reservationCancelled'));
       return showMenu(c);
     }
     if (id === 'menu') return showMenu(c);
-    await ask(c, {
-      text: `Your reservation ${b.code} is waiting for payment. Once you pay, you'll get the confirmation here automatically.`,
-    }, [
-      { id: 'resend', title: 'Send link again' },
-      { id: 'cancelhold', title: 'Cancel reservation' },
-      { id: 'human', title: 'Talk to a person' },
+    await ask(c, { text: T(c, 'waitingPayment', b.code) }, [
+      { id: 'resend', title: T(c, 'resend') },
+      { id: 'cancelhold', title: T(c, 'cancelReservation') },
+      { id: 'human', title: T(c, 'talkToPerson') },
     ]);
   },
 };
 
 // ---------- Flow steps ----------
 
-function readFutureDate(text) {
-  const date = parseDate(text);
+function readFutureDate(c, text) {
+  const date = parseDate(text, new Date(), c.lang);
   const today = caboToday();
-  if (!date) return { error: 'Sorry, I didn\'t get the date 🙈 Try something like *tomorrow*, *Nov 14* or *11/14*.' };
-  if (date < today) return { error: 'That date has already passed. Which upcoming date works for you?' };
-  if (date === today) return { error: 'For same-day bookings please type *human* and our team will check what we can do. Or send another date.' };
-  if (date > addDays(today, MAX_DAYS_AHEAD)) return { error: `We take bookings up to ${MAX_DAYS_AHEAD} days ahead. Please pick an earlier date.` };
+  if (!date) return { error: T(c, 'dateNotUnderstood') };
+  if (date < today) return { error: T(c, 'datePassed') };
+  if (date === today) return { error: T(c, 'dateToday') };
+  if (date > addDays(today, MAX_DAYS_AHEAD)) return { error: T(c, 'dateTooFar', MAX_DAYS_AHEAD) };
   return { value: date };
 }
 
 async function startFishing(c) {
   c.state = 'fish_date';
   c.data = { name: c.data.name };
-  await say(c, '🎣 Awesome! What date would you like to go fishing? (e.g. *tomorrow*, *Nov 14*)');
+  await say(c, T(c, 'fishStart'));
 }
 
 async function showBoats(c) {
@@ -397,101 +429,98 @@ async function showBoats(c) {
   const boats = availableBoats(date, hours, guests).filter((b) => !exclude.includes(b.id)).slice(0, 8);
   c.state = 'fish_boat';
   if (!boats.length) {
-    return ask(c, {
-      text: `😕 No boats available on ${formatDate(date)} for ${guests} guests (${hours}h). Want to try something else?`,
-    }, [
-      { id: 'otherdate', title: 'Another date' },
-      { id: 'otherhours', title: 'Another duration' },
-      { id: 'human', title: 'Talk to a person' },
+    return ask(c, { text: T(c, 'noBoats', D(c, date), guests, hours) }, [
+      { id: 'otherdate', title: T(c, 'anotherDate') },
+      { id: 'otherhours', title: T(c, 'anotherDuration') },
+      { id: 'human', title: T(c, 'talkToPerson') },
     ]);
   }
   const rows = boats.map((b) => ({
     id: `boat${b.id}`,
     title: `${b.name}${b.length_ft ? ` ${b.length_ft}ft` : ''}`,
-    description: `${usd(b.price)} · up to ${b.max_guests} people · Capt. ${b.captain_name}`,
+    description: T(c, 'boatRow', usd(b.price), b.max_guests, b.captain_name),
   }));
-  rows.push({ id: 'otherdate', title: 'Another date' });
-  const details = boats.map((b, i) => `*${i + 1}. ${b.name}* — ${usd(b.price)}\n${b.description || ''}`.trim()).join('\n\n');
+  rows.push({ id: 'otherdate', title: T(c, 'anotherDate') });
+  const details = boats.map((b, i) => `*${i + 1}. ${b.name}* — ${usd(b.price)}\n${boatDescription(b, c.lang)}`.trim()).join('\n\n');
   await ask(c, {
-    text:
-      `Here are the boats available on *${formatDate(date)}* (${hours}h, departs ${formatTime(TRIP_START[hours])}):\n\n${details}\n\n` +
-      `You pay only a ${config.depositPercent}% deposit online to lock it in; the rest is paid in cash to the captain.`,
-    listButton: 'Choose a boat',
-    listTitle: 'Available boats',
+    text: T(c, 'boatsAvailable', D(c, date), hours, fmtTime(TRIP_START[hours], c.lang), details, config.depositPercent),
+    listButton: T(c, 'chooseBoat'),
+    listTitle: T(c, 'availableBoats'),
   }, rows);
 }
 
 async function askName(c, next) {
   c.data.after_name = next;
   c.state = 'ask_name';
-  if (c.data.name) {
-    return ask(c, { text: `Who should the reservation be under? Tap below or type another name.` }, [{ id: 'usename', title: c.data.name.slice(0, 20) }]);
-  }
-  await say(c, 'What name should the reservation be under?');
+  if (c.data.name) return ask(c, { text: T(c, 'askNameDefault') }, [{ id: 'usename', title: c.data.name.slice(0, 20) }]);
+  await say(c, T(c, 'askName'));
 }
 
 async function showFishingSummary(c) {
   const { date, hours, guests, boatId } = c.data;
   const boat = availableBoats(date, hours, guests).find((b) => b.id === boatId);
   if (!boat) {
-    await say(c, 'Sorry, that boat was just taken 😕');
+    await say(c, T(c, 'boatJustTaken'));
     return showBoats(c);
   }
   const deposit = Math.ceil((boat.price * config.depositPercent) / 100);
   c.state = 'fish_confirm';
   await ask(c, {
-    text:
-      `Please confirm your trip:\n\n` +
-      `🚤 ${boat.name} — Capt. ${boat.captain_name}\n📅 ${formatDate(date)}, ${formatTime(TRIP_START[hours])} (${hours} hours)\n` +
-      `👥 ${guests} guests · 🙋 ${c.data.name}\n` +
-      (boat.meeting_point ? `📍 ${boat.meeting_point}\n` : '') +
-      `\n💵 Total *${usd(boat.price)}*\n• Pay now online: *${usd(deposit)}* (deposit)\n• Pay the captain in cash: *${usd(boat.price - deposit)}*`,
+    text: T(c, 'fishSummary', {
+      boat: boat.name, captain: boat.captain_name, date: D(c, date), time: fmtTime(TRIP_START[hours], c.lang), hours, guests,
+      name: c.data.name, meeting: boat.meeting_point, total: usd(boat.price), deposit: usd(deposit), cash: usd(boat.price - deposit),
+    }),
   }, [
-    { id: 'pay', title: 'Confirm & pay' },
-    { id: 'change', title: 'Change' },
-    { id: 'human', title: 'Talk to a person' },
+    { id: 'pay', title: T(c, 'confirmPay') },
+    { id: 'change', title: T(c, 'change') },
+    { id: 'human', title: T(c, 'talkToPerson') },
   ]);
 }
 
 async function startRental(c) {
   c.state = 'rent_start';
   c.data = { name: c.data.name };
-  await say(c, '🏖️ Great! We deliver beach and baby gear right to your villa or Airbnb. What date should the rental start? (e.g. *tomorrow*, *Nov 14*)');
+  await say(c, T(c, 'rentStart'));
+}
+
+function cartLines(c, q) {
+  return q.lines.map((l) => `• ${l.qty} × ${itemName(l.item, c.lang)} — ${usd(l.subtotal)}`).join('\n');
 }
 
 async function showItems(c) {
   c.state = 'rent_items';
-  const days = Math.round((Date.parse(c.data.end) - Date.parse(c.data.start)) / 864e5) + 1;
+  delete c.data.pendingItem;
+  delete c.data.pendingMax;
+  const days = T(c, 'days', Math.round((Date.parse(c.data.end) - Date.parse(c.data.start)) / 864e5) + 1);
   const rows = rentalItems()
     .filter((i) => itemAvailability(i.id, c.data.start, c.data.end) > (c.data.cart.find((x) => x.itemId === i.id)?.qty || 0))
     .slice(0, c.data.cart.length ? 9 : 10)
-    .map((i) => ({ id: `item${i.id}`, title: i.name, description: `${usd(i.price_per_day)}/day · ${i.category === 'baby' ? '👶 Baby' : '🏖️ Beach'}` }));
+    .map((i) => ({ id: `item${i.id}`, title: itemName(i, c.lang), description: T(c, 'itemRow', usd(i.price_per_day), i.category) }));
   let text;
   if (c.data.cart.length) {
-    const q = rentalQuote(c.data.cart, c.data.start, c.data.end);
-    text = `🛒 Your cart (${days} day${days > 1 ? 's' : ''}):\n` +
-      q.lines.map((l) => `• ${l.qty} × ${l.item.name} — ${usd(l.subtotal)}`).join('\n') +
-      `\n\nAdd more items, or tap *Done – checkout*.`;
-    rows.unshift({ id: 'checkout', title: '✅ Done – checkout', description: 'Continue to delivery details' });
+    text = T(c, 'cart', days, cartLines(c, rentalQuote(c.data.cart, c.data.start, c.data.end)));
+    rows.unshift({ id: 'checkout', title: T(c, 'doneCheckout'), description: T(c, 'doneCheckoutDesc') });
   } else {
-    text = `What would you like to rent from ${formatDate(c.data.start)} to ${formatDate(c.data.end)} (${days} day${days > 1 ? 's' : ''})? Pick one item at a time.`;
+    text = T(c, 'rentWhat', D(c, c.data.start), D(c, c.data.end), days);
   }
-  if (!rows.length) return ask(c, { text: 'Sorry, everything is booked for those dates 😕' }, [{ id: 'menu', title: 'Main menu' }, { id: 'human', title: 'Talk to a person' }]);
-  await ask(c, { text, listButton: 'See items', listTitle: 'Rental gear' }, rows);
+  if (!rows.length) {
+    return ask(c, { text: T(c, 'everythingBooked') }, [{ id: 'menu', title: T(c, 'mainMenu') }, { id: 'human', title: T(c, 'talkToPerson') }]);
+  }
+  await ask(c, { text, listButton: T(c, 'seeItems'), listTitle: T(c, 'rentalGear') }, rows);
 }
 
 async function showRentalSummary(c) {
   const q = rentalQuote(c.data.cart, c.data.start, c.data.end);
   c.state = 'rent_confirm';
   await ask(c, {
-    text:
-      `Please confirm your rental:\n\n📅 ${formatDate(c.data.start)} → ${formatDate(c.data.end)} (${q.days} day${q.days > 1 ? 's' : ''})\n` +
-      q.lines.map((l) => `• ${l.qty} × ${l.item.name} — ${usd(l.subtotal)}`).join('\n') +
-      `\n• Delivery & pickup — ${usd(q.delivery)}\n🚚 ${c.data.address}\n🙋 ${c.data.name}\n\n💵 Total *${usd(q.total)}*, paid online.`,
+    text: T(c, 'rentSummary', {
+      start: D(c, c.data.start), end: D(c, c.data.end), days: T(c, 'days', q.days), lines: cartLines(c, q),
+      delivery: usd(q.delivery), address: c.data.address, name: c.data.name, total: usd(q.total),
+    }),
   }, [
-    { id: 'pay', title: 'Confirm & pay' },
-    { id: 'change', title: 'Change' },
-    { id: 'human', title: 'Talk to a person' },
+    { id: 'pay', title: T(c, 'confirmPay') },
+    { id: 'change', title: T(c, 'change') },
+    { id: 'human', title: T(c, 'talkToPerson') },
   ]);
 }
 
@@ -503,19 +532,18 @@ function restoreTrip(b) {
 // outcome: 'approved' | 'declined' | 'timeout'
 export async function captainAnswered(b, outcome) {
   const c = loadConversation(b.customer_phone);
+  c.lang = c.lang || b.lang;
   if (outcome === 'approved') {
-    await sendPaymentLink(c, b, `Fishing charter ${b.code} – deposit`, `✅ Capt. ${b.captain_name} confirmed the boat for ${formatDate(b.date)}!\n\n`);
+    await sendPaymentLink(c, b, t(b.lang, 'stripeFishing', b.code), T(c, 'captainConfirmed', b.captain_name, D(c, b.date)));
   } else {
     const excludeBoats = [...new Set([...(c.data.code === b.code ? c.data.excludeBoats || [] : []), b.boat_id])];
     c.data = { ...restoreTrip(b), name: c.data.name || b.customer_name, excludeBoats };
     const others = availableBoats(b.date, b.hours, b.guests).filter((x) => !excludeBoats.includes(x.id));
     if (!others.length) {
       await escalate(c, { text: '', profileName: b.customer_name },
-        `Capt. ${b.captain_name} ${outcome === 'declined' ? 'said NO' : "didn't answer"} for ${b.code} and no other boats are free (${formatDate(b.date)}, ${b.hours}h, ${b.guests} guests)`);
+        t(owner, 'reasonNoBoats', b.captain_name, outcome === 'declined', b.code, fmtDate(b.date, owner), b.hours, b.guests));
     } else {
-      await say(c, outcome === 'declined'
-        ? `😕 Sorry, Capt. ${b.captain_name}'s boat is no longer available on ${formatDate(b.date)}. Here are other great options:`
-        : `⏳ Capt. ${b.captain_name} hasn't confirmed yet, so let's not keep you waiting. Here are other boats available on ${formatDate(b.date)}:`);
+      await say(c, T(c, outcome === 'declined' ? 'captainDeclined' : 'captainTimeout', b.captain_name, D(c, b.date)));
       await showBoats(c);
     }
   }
@@ -527,8 +555,6 @@ async function sendPaymentLink(c, b, description, intro = '') {
   setPaymentRef(b.code, ref);
   c.state = 'awaiting_payment';
   c.data = { name: c.data.name, code: b.code, payUrl: url };
-  const what = b.kind === 'fishing'
-    ? `your *${usd(b.paid_online)} deposit* to lock the boat. The remaining ${usd(b.balance_cash)} is paid in cash to the captain on the day.`
-    : `*${usd(b.paid_online)}* to reserve your gear.`;
-  await say(c, `${intro}💳 Pay ${what}\n\n👉 ${url}\n\nWe're holding it for you for ${config.holdMinutes} minutes. You'll get your confirmation here right after paying.`);
+  const what = b.kind === 'fishing' ? T(c, 'payFishing', usd(b.paid_online), usd(b.balance_cash)) : T(c, 'payRental', usd(b.paid_online));
+  await say(c, intro + T(c, 'payLink', what, url, config.holdMinutes));
 }

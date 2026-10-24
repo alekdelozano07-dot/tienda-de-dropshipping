@@ -1,8 +1,6 @@
 // Los Cabos (Baja California Sur) is UTC-7 all year (no DST since 2022).
 const CABO_OFFSET_MS = -7 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
 export const TRIP_START = { 4: '07:00', 6: '07:00', 8: '06:00' };
 
@@ -23,16 +21,6 @@ export function caboInstant(date, time = '00:00') {
   return new Date(Date.parse(`${date}T${time}:00Z`) - CABO_OFFSET_MS);
 }
 
-export function formatDate(date) {
-  const d = new Date(date + 'T00:00:00Z');
-  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
-}
-
-export function formatTime(time) {
-  const [h, m] = time.split(':').map(Number);
-  return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
-}
-
 function valid(y, m, d) {
   const iso = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
   const t = new Date(iso + 'T00:00:00Z');
@@ -47,35 +35,51 @@ function nextOccurrence(m, d, today) {
   return valid(year + 1, m, d);
 }
 
-// Understands: today, tomorrow, weekday names, 2026-11-03, 11/3, 11/3/2026, Nov 3, 3 Nov, November 3rd.
-export function parseDate(text, now = new Date()) {
-  const today = caboToday(now);
-  const t = String(text).toLowerCase().trim().replace(/(\d)(st|nd|rd|th)\b/g, '$1').replace(/,/g, ' ');
+// Month and weekday names in English and Spanish (accents removed before matching).
+const MONTH_NAMES = [
+  ['january', 'jan', 'enero', 'ene'], ['february', 'feb', 'febrero'], ['march', 'mar', 'marzo'],
+  ['april', 'apr', 'abril', 'abr'], ['may', 'mayo'], ['june', 'jun', 'junio'], ['july', 'jul', 'julio'],
+  ['august', 'aug', 'agosto', 'ago'], ['september', 'sept', 'sep', 'septiembre', 'setiembre', 'set'],
+  ['october', 'oct', 'octubre'], ['november', 'nov', 'noviembre'], ['december', 'dec', 'diciembre', 'dic'],
+];
+const WEEKDAY_NAMES = [
+  ['sunday', 'sun', 'domingo'], ['monday', 'mon', 'lunes'], ['tuesday', 'tue', 'martes'], ['wednesday', 'wed', 'miercoles'],
+  ['thursday', 'thu', 'jueves'], ['friday', 'fri', 'viernes'], ['saturday', 'sat', 'sabado'],
+];
 
-  if (/\btoday\b|\btonight\b/.test(t)) return today;
-  if (/\bday after tomorrow\b/.test(t)) return addDays(today, 2);
-  if (/\btomorrow\b|\btmrw\b|\btmr\b/.test(t)) return addDays(today, 1);
+// Understands, in English and Spanish: today/hoy, tomorrow/mañana, weekday names, 2026-11-03, Nov 3, 3 de noviembre,
+// and slashes: 11/3 is Nov 3 in English, 3/11 is Nov 3 in Spanish (day first), unless one part is over 12.
+export function parseDate(text, now = new Date(), lang = 'en') {
+  const today = caboToday(now);
+  const t = String(text).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .trim().replace(/(\d)(st|nd|rd|th)\b/g, '$1').replace(/,/g, ' ');
 
   let m = t.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
   if (m) return valid(+m[1], +m[2], +m[3]);
 
   m = t.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
   if (m) {
-    if (m[3]) return valid(m[3].length === 2 ? 2000 + +m[3] : +m[3], +m[1], +m[2]);
-    return nextOccurrence(+m[1], +m[2], today);
+    let [a, b] = [+m[1], +m[2]];
+    const dayFirst = b > 12 ? false : a > 12 ? true : lang === 'es';
+    const [month, day] = dayFirst ? [b, a] : [a, b];
+    if (m[3]) return valid(m[3].length === 2 ? 2000 + +m[3] : +m[3], month, day);
+    return nextOccurrence(month, day, today);
   }
 
-  const monthIdx = MONTHS.findIndex((mo) => new RegExp(`\\b${mo}[a-z]*\\b`).test(t));
-  if (monthIdx >= 0) {
-    const day = t.match(/\b(\d{1,2})\b/);
-    if (day) return nextOccurrence(monthIdx + 1, +day[1], today);
-  }
+  const words = new Set(t.split(/[^a-z0-9]+/));
+  const monthIdx = MONTH_NAMES.findIndex((names) => names.some((mo) => words.has(mo)));
+  const dayNum = t.match(/\b(\d{1,2})\b/);
+  if (monthIdx >= 0 && dayNum) return nextOccurrence(monthIdx + 1, +dayNum[1], today);
 
-  const wd = WEEKDAYS.findIndex((w) => t.includes(w) || new RegExp(`\\b${w.slice(0, 3)}\\b`).test(t));
+  if (/\b(today|tonight|hoy|esta noche)\b/.test(t)) return today;
+  if (/\b(day after tomorrow|pasado manana)\b/.test(t)) return addDays(today, 2);
+  if (/\b(tomorrow|tmrw|tmr|manana)\b/.test(t)) return addDays(today, 1);
+
+  const wd = WEEKDAY_NAMES.findIndex((names) => names.some((w) => words.has(w)));
   if (wd >= 0) {
     const todayWd = new Date(today + 'T00:00:00Z').getUTCDay();
     let diff = (wd - todayWd + 7) % 7;
-    if (diff === 0 || /\bnext\b/.test(t)) diff = diff || 7;
+    if (diff === 0) diff = 7;
     return addDays(today, diff);
   }
   return null;

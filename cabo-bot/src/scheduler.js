@@ -1,8 +1,9 @@
 import { getDb } from './db.js';
-import { addDays, caboInstant, caboToday, formatDate } from './dates.js';
+import { addDays, caboInstant, caboToday } from './dates.js';
 import { getBooking, sqlTime } from './bookings.js';
 import { captainAnswered } from './bot.js';
-import { sendReminder } from './notify.js';
+import { sendReminder, tellCaptain } from './notify.js';
+import { t } from './i18n.js';
 import { sendMessage } from './whatsapp.js';
 
 // Runs every minute: releases unpaid holds and sends reminders. Safe to run repeatedly.
@@ -17,19 +18,19 @@ export async function tick(now = new Date()) {
     const r = db.prepare(`UPDATE bookings SET status = 'no_reply' WHERE code = ? AND status = 'awaiting_captain'`).run(code);
     if (!r.changes) continue;
     const b = getBooking(code);
-    await sendMessage(b.captain_phone, { text: `⌛ Request ${code} (${formatDate(b.date)}) expired without an answer, so we offered the client other boats.` }, { notification: true });
+    await tellCaptain(b, 'capTimeout');
     await captainAnswered(b, 'timeout');
   }
 
   // 2. Expire unpaid holds and tell the customer.
   const expired = db.prepare(`
-    SELECT code, customer_phone FROM bookings WHERE status = 'pending_payment' AND hold_expires_at <= ?
+    SELECT code, customer_phone, lang FROM bookings WHERE status = 'pending_payment' AND hold_expires_at <= ?
   `).all(sqlTime(now));
   for (const b of expired) {
     db.prepare(`UPDATE bookings SET status = 'expired' WHERE code = ? AND status = 'pending_payment'`).run(b.code);
     db.prepare(`UPDATE conversations SET state = 'menu', data = json_object('name', json_extract(data, '$.name'))
                 WHERE phone = ? AND state = 'awaiting_payment' AND json_extract(data, '$.code') = ?`).run(b.customer_phone, b.code);
-    await sendMessage(b.customer_phone, { text: `⌛ Your reservation ${b.code} expired because the payment wasn't completed. No worries — type *menu* to book again.` });
+    await sendMessage(b.customer_phone, { text: t(b.lang, 'holdExpired', b.code) }, { lang: b.lang });
   }
 
   // 3. Day-before reminders at 5 PM Cabo time.

@@ -1,6 +1,6 @@
 # Cabo Bot — bot de WhatsApp para tours de pesca y rentas de playa
 
-El turista escanea un QR, te escribe por WhatsApp y el bot (en inglés) le vende un tour de pesca o una renta de equipo de playa/bebé. El cliente paga en línea, el sistema confirma, avisa al capitán y manda los recordatorios solo.
+El turista escanea un QR, te escribe por WhatsApp y el bot (en inglés o español) le vende un tour de pesca o una renta de equipo de playa/bebé. El cliente paga en línea, el sistema confirma, avisa al capitán y manda los recordatorios solo.
 
 ## Qué hace
 
@@ -16,20 +16,36 @@ El turista escanea un QR, te escribe por WhatsApp y el bot (en inglés) le vende
 | 7. Recordatorios | Día anterior a las 5 PM (cliente y capitán). Rentas: aviso de entrega y de recogida. Pesca: mensaje de agradecimiento que ofrece rentas |
 | 8. Casos raros | El cliente escribe `human` → el bot se calla y te reenvía la conversación |
 
+### Inglés y español
+
+Cada persona recibe los mensajes en su idioma:
+
+- **Turistas:** el bot detecta el idioma del primer mensaje ("hola, quiero pescar" → español; "hi" → inglés; si no se puede saber, español para números de México y si no, inglés). En cualquier momento pueden escribir `español` o `english` para cambiar, y el bot repite la pregunta en la que iban. Los recordatorios y el pago de Stripe también salen en su idioma.
+- **Capitanes:** cada uno tiene su idioma (`lang` en `scripts/seed.js`, español por defecto). Pueden cambiarlo escribiendo `english` o `español`.
+- **Tú:** `OWNER_LANG=es` (o `en`) en `.env`. Cuando un cliente pasa a atención personal, te dice en qué idioma habla para que le contestes en ese idioma.
+- **Fechas:** se entienden en los dos idiomas ("mañana", "20 de noviembre", "Nov 20", "el viernes"). En español 3/11 es 3 de noviembre; en inglés es 11 de marzo.
+- **Panel:** `/admin` sale en tu idioma; el enlace de arriba cambia a inglés (`?lang=en`).
+- **QR:** `/qr/villa` abre WhatsApp con un saludo en inglés y `/qr/villa?lang=es` con uno en español.
+
+En `scripts/seed.js` cada barco tiene `description` (inglés) y `description_es`, y cada artículo `name` y `name_es`. Todos los textos del bot están en `src/i18n.js`, por si quieres cambiar alguna frase.
+
 ### Comandos por WhatsApp (escríbelos al número del bot)
 
+Funcionan en inglés y en español, con o sin acentos.
+
 **Tú (OWNER_PHONE):**
-- `TODAY` / `TOMORROW` — viajes, entregas y recogidas del día
-- `REPLY 5216241234567 mensaje` — contestar a un cliente desde el número del bot
+- `HOY` / `MAÑANA` (`TODAY` / `TOMORROW`) — viajes, entregas y recogidas del día
+- `RESPONDER 5216241234567 mensaje` (`REPLY`) — contestar a un cliente desde el número del bot
 - `BOT 5216241234567` — devolverle la conversación al bot
-- `BOOKING CB1A2B3C` — ver una reserva
-- `CANCEL CB1A2B3C` — cancelar (avisa al cliente y al capitán; el reembolso lo haces en Stripe)
+- `RESERVA CB1A2B3C` (`BOOKING`) — ver una reserva
+- `CANCELAR CB1A2B3C` (`CANCEL`) — cancelar (avisa al cliente y al capitán en su idioma; el reembolso lo haces en Stripe)
 
 **Capitanes:**
-- `YES CB1A2B3C` / `NO CB1A2B3C` — contestar una solicitud (o tocar el botón; si solo tiene una pendiente basta con `yes`, `sí` o `no`)
-- `TRIPS` — sus próximos viajes
-- `BLOCK 2026-11-20` / `UNBLOCK 2026-11-20` — cerrar/abrir un día (mal tiempo, mantenimiento, viaje privado)
-- `BLOCKED` — días cerrados
+- `SÍ CB1A2B3C` / `NO CB1A2B3C` (`YES`) — contestar una solicitud (o tocar el botón; si solo tiene una pendiente basta con `sí` o `no`)
+- `VIAJES` (`TRIPS`) — sus próximos viajes
+- `BLOQUEAR 2026-11-20` / `DESBLOQUEAR 2026-11-20` (`BLOCK` / `UNBLOCK`) — cerrar/abrir un día (mal tiempo, mantenimiento, viaje privado)
+- `BLOQUEADOS` (`BLOCKED`) — días cerrados
+- `ENGLISH` / `ESPAÑOL` — cambiar su idioma
 - Cualquier otro mensaje te llega a ti.
 
 ### Panel de administración
@@ -70,7 +86,11 @@ Los números van en formato internacional, solo dígitos: México `521` + 10 dí
 
    > `Update from Cabo Fish & Beach: {{1}}`
 
-   y pon su nombre en `WHATSAPP_NOTIFY_TEMPLATE`. El bot la usa automáticamente para esos avisos.
+   Agrégale también la versión en español (mismo nombre, idioma *Spanish (MEX)*):
+
+   > `Aviso de Cabo Fish & Beach: {{1}}`
+
+   y pon su nombre en `WHATSAPP_NOTIFY_TEMPLATE`. El bot usa automáticamente la versión del idioma de cada persona.
 
 ## 4. Conectar pagos (Stripe)
 
@@ -112,11 +132,12 @@ Si alguien paga después de que venció su apartado y el barco ya lo tomó otro,
 
 ```
 src/server.js     servidor: webhooks de WhatsApp y Stripe, QR, admin, simulador
-src/bot.js        la conversación con el turista (en inglés)
+src/bot.js        la conversación con el turista
 src/bookings.js   disponibilidad, apartados, pagos
 src/staff.js      comandos del dueño y de los capitanes
 src/notify.js     mensajes de confirmación y recordatorios
 src/scheduler.js  tareas cada minuto (vencer apartados, recordatorios)
+src/i18n.js       todos los textos en inglés y español
 src/whatsapp.js   envío/recepción de WhatsApp Cloud API
 src/payments.js   Stripe Checkout
 src/pages.js      panel de admin y simulador

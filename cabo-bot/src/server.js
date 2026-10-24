@@ -83,21 +83,25 @@ export async function route(req, res) {
   // --- QR links: /qr/airbnb-casa-azul → opens WhatsApp chat with a prefilled, tagged message ---
   if (req.method === 'GET' && path.startsWith('/qr/')) {
     const source = path.slice(4).replace(/[^\w-]/g, '').slice(0, 40) || 'qr';
-    const text = `Hi! I'd like to book a fishing trip or beach rentals (ref: ${source})`;
+    const text = url.searchParams.get('lang') === 'es'
+      ? `¡Hola! Quiero reservar un viaje de pesca o rentar equipo de playa (ref: ${source})`
+      : `Hi! I'd like to book a fishing trip or beach rentals (ref: ${source})`;
     return send(res, 302, '', 'text/plain', { Location: `https://wa.me/${config.botPhone}?text=${encodeURIComponent(text)}` });
   }
 
   if (req.method === 'GET' && path === '/paid') {
-    return send(res, 200, simplePage('Payment received ✅', 'Thank you! Your confirmation is on its way to your WhatsApp. You can close this page.'), 'text/html; charset=utf-8');
+    return send(res, 200, simplePage('Payment received ✅ / Pago recibido ✅',
+      'Thank you! Your confirmation is on its way to your WhatsApp. You can close this page.<br><br>¡Gracias! Tu confirmación va en camino a tu WhatsApp. Ya puedes cerrar esta página.'), 'text/html; charset=utf-8');
   }
   if (req.method === 'GET' && path === '/cancelled') {
-    return send(res, 200, simplePage('Payment not completed', 'No charge was made. Go back to WhatsApp to try again or ask us anything.'), 'text/html; charset=utf-8');
+    return send(res, 200, simplePage('Payment not completed / Pago no completado',
+      'No charge was made. Go back to WhatsApp to try again or ask us anything.<br><br>No se hizo ningún cargo. Regresa a WhatsApp para intentarlo de nuevo o preguntarnos lo que quieras.'), 'text/html; charset=utf-8');
   }
 
   // --- Admin dashboard ---
   if (req.method === 'GET' && path === '/admin') {
     if (!isAdmin(req)) return send(res, 401, 'Login required', 'text/plain', { 'WWW-Authenticate': 'Basic realm="admin"' });
-    return send(res, 200, adminPage(), 'text/html; charset=utf-8');
+    return send(res, 200, adminPage(url.searchParams.get('lang') || undefined), 'text/html; charset=utf-8');
   }
 
   if (req.method === 'GET' && path === '/health') return send(res, 200, 'ok');
