@@ -8,6 +8,7 @@ El turista escanea un QR, te escribe por WhatsApp y el bot (en inglés) le vende
 |---|---|
 | 1. Llega el cliente | QR en Airbnb, villa, taxi o Instagram → abre WhatsApp con un mensaje ya escrito que dice de dónde viene (`ref: airbnb-casa-azul`) |
 | 2. Pesca | Pide fecha, número de personas y duración (4/6/8 h) → muestra **solo los barcos libres** ese día → el cliente elige |
+| 2b. Confirma el capitán | Antes de cobrar, el bot le pregunta al capitán por WhatsApp si el barco está libre (botones SÍ/NO). **SÍ** → el cliente recibe el link de pago. **NO** → ese día se cierra para ese barco y al cliente se le ofrecen otros. **No contesta en 15 min** → se le ofrecen otros barcos; si no queda ninguno, te pasa el chat a ti |
 | 3. Rentas | Pide fecha de inicio y días → muestra equipo con existencias reales → carrito → dirección de entrega |
 | 4. Pago | Link de Stripe. Pesca: **anticipo del 20 %** (tu comisión), el resto en efectivo al capitán. Rentas: **100 % en línea** |
 | 5. Apartado | El barco/equipo queda apartado 30 min mientras paga. Si no paga, se libera solo y se le avisa |
@@ -25,6 +26,7 @@ El turista escanea un QR, te escribe por WhatsApp y el bot (en inglés) le vende
 - `CANCEL CB1A2B3C` — cancelar (avisa al cliente y al capitán; el reembolso lo haces en Stripe)
 
 **Capitanes:**
+- `YES CB1A2B3C` / `NO CB1A2B3C` — contestar una solicitud (o tocar el botón; si solo tiene una pendiente basta con `yes`, `sí` o `no`)
 - `TRIPS` — sus próximos viajes
 - `BLOCK 2026-11-20` / `UNBLOCK 2026-11-20` — cerrar/abrir un día (mal tiempo, mantenimiento, viaje privado)
 - `BLOCKED` — días cerrados
@@ -76,6 +78,10 @@ Los números van en formato internacional, solo dígitos: México `521` + 10 dí
 2. Copia la clave secreta en `STRIPE_SECRET_KEY`.
 3. En **Developers → Webhooks** agrega `https://tu-dominio.com/stripe/webhook` con el evento `checkout.session.completed` y copia el *signing secret* en `STRIPE_WEBHOOK_SECRET`.
 
+### ¿De dónde sale la disponibilidad?
+
+De la base de datos del bot: un barco está libre si no tiene reservas del bot ese día, nadie lo tiene apartado y el capitán no cerró la fecha. Como el capitán también vende por fuera, **siempre se le pregunta antes de cobrar**. Cuando dice NO, ese día queda cerrado para que no se le vuelva a preguntar. Aun así conviene que los capitanes manden `BLOCK fecha` cuando venden por su cuenta: así el turista ni siquiera ve ese barco.
+
 ## 5. Publicarlo en internet
 
 El bot es un servidor que debe estar encendido siempre (por los recordatorios) y guarda los datos en un archivo SQLite, así que necesita un hosting con **disco persistente**: [Railway](https://railway.app) o [Render](https://render.com) (con un *Disk* montado), o cualquier VPS.
@@ -95,9 +101,10 @@ Netlify/Vercel no sirven para esto (no mantienen un servidor encendido ni un dis
 |---|---|---|
 | `DEPOSIT_PERCENT` | 20 | % que se cobra en línea en pesca (tu comisión) |
 | `HOLD_MINUTES` | 30 | Minutos que se aparta el barco/equipo esperando el pago |
+| `CAPTAIN_REPLY_MINUTES` | 15 | Minutos que tiene el capitán para contestar SÍ/NO. Entre 9 PM y 7 AM el plazo empieza a contar a las 7 AM |
 | `RENTAL_DELIVERY_FEE` | 25 | Cargo fijo de entrega y recogida (USD) |
 
-Otras reglas fijas del código: reservas desde mañana hasta 180 días; el mismo día se pasa a una persona. Un barco hace un viaje por día. Salidas: 4 h y 6 h a las 7:00 AM, 8 h a las 6:00 AM (`src/dates.js`).
+Otras reglas fijas del código: reservas desde mañana hasta 180 días; el mismo día se pasa a una persona. Si no da tiempo de esperar al capitán (menos de 3 h entre el plazo de respuesta y la salida, p. ej. alguien reserva a las 11 PM para mañana a las 7 AM), el chat se te pasa a ti. Un barco hace un viaje por día. Salidas: 4 h y 6 h a las 7:00 AM, 8 h a las 6:00 AM (`src/dates.js`).
 
 Si alguien paga después de que venció su apartado y el barco ya lo tomó otro, el sistema no lo confirma: le avisa al cliente y a ti te dice que hagas el reembolso.
 

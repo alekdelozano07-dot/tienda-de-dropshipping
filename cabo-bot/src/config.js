@@ -12,6 +12,7 @@ export const config = {
 
   depositPercent: Number(env.DEPOSIT_PERCENT || 20),
   holdMinutes: Number(env.HOLD_MINUTES || 30),
+  captainReplyMinutes: Number(env.CAPTAIN_REPLY_MINUTES || 15),
   rentalDeliveryFee: Number(env.RENTAL_DELIVERY_FEE || 25),
 
   whatsapp: {

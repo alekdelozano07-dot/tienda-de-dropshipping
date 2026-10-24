@@ -3,8 +3,14 @@ import { getDb } from './db.js';
 import { config } from './config.js';
 import { addDays, daysBetween } from './dates.js';
 
-// A booking "holds" inventory while confirmed/completed, or while unpaid and its hold has not expired.
-const HOLDING = `(status IN ('confirmed', 'completed') OR (status = 'pending_payment' AND hold_expires_at > datetime('now')))`;
+// A booking "holds" inventory while confirmed/completed, or while waiting for the captain or the
+// payment and its hold has not expired.
+const HOLDING = `(status IN ('confirmed', 'completed')
+  OR (status IN ('awaiting_captain', 'pending_payment') AND hold_expires_at > datetime('now')))`;
+
+export function sqlTime(d) {
+  return d.toISOString().slice(0, 19).replace('T', ' ');
+}
 
 export function newCode() {
   return 'CB' + crypto.randomBytes(3).toString('hex').toUpperCase();
@@ -32,7 +38,8 @@ export function availableBoats(date, hours, guests, { excludeBookingId = 0 } = {
   `).all(guests, date, date, excludeBookingId);
 }
 
-export function createFishingHold({ phone, name, source, date, hours, guests, boatId }) {
+// Creates a fishing request that waits for the captain to confirm until `expiresAt`.
+export function createFishingRequest({ phone, name, source, date, hours, guests, boatId, expiresAt }) {
   const db = getDb();
   db.exec('BEGIN IMMEDIATE');
   try {
@@ -44,8 +51,8 @@ export function createFishingHold({ phone, name, source, date, hours, guests, bo
     db.prepare(`
       INSERT INTO bookings (code, kind, status, customer_phone, customer_name, source, date, boat_id, hours, guests,
                             total, paid_online, balance_cash, hold_expires_at)
-      VALUES (?, 'fishing', 'pending_payment', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', ?))
-    `).run(code, phone, name, source, date, boatId, hours, guests, total, deposit, total - deposit, `+${config.holdMinutes} minutes`);
+      VALUES (?, 'fishing', 'awaiting_captain', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(code, phone, name, source, date, boatId, hours, guests, total, deposit, total - deposit, sqlTime(expiresAt));
     db.exec('COMMIT');
     return getBooking(code);
   } catch (e) {
@@ -164,6 +171,33 @@ export function markPaid(code) {
     db.exec('ROLLBACK');
     throw e;
   }
+}
+
+// Pending captain requests, oldest first.
+export function captainRequests(captainId) {
+  return getDb().prepare(`
+    SELECT code FROM bookings WHERE status = 'awaiting_captain' AND hold_expires_at > datetime('now')
+      AND boat_id IN (SELECT id FROM boats WHERE captain_id = ?) ORDER BY created_at
+  `).all(captainId).map((r) => getBooking(r.code));
+}
+
+// Captain said yes: move to payment and restart the hold. Returns the booking, or null if the request is no longer open.
+export function approveRequest(code) {
+  const r = getDb().prepare(`
+    UPDATE bookings SET status = 'pending_payment', hold_expires_at = datetime('now', ?)
+    WHERE code = ? AND status = 'awaiting_captain' AND hold_expires_at > datetime('now')
+  `).run(`+${config.holdMinutes} minutes`, code);
+  return r.changes ? getBooking(code) : null;
+}
+
+// Captain said no (the boat is busy that day): close the date for that boat too.
+export function declineRequest(code) {
+  const db = getDb();
+  const r = db.prepare(`UPDATE bookings SET status = 'declined' WHERE code = ? AND status = 'awaiting_captain'`).run(code);
+  if (!r.changes) return null;
+  const b = getBooking(code);
+  db.prepare('INSERT OR IGNORE INTO boat_blocks (boat_id, date) VALUES (?, ?)').run(b.boat_id, b.date);
+  return b;
 }
 
 export function setStatus(code, status) {

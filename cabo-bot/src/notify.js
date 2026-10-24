@@ -24,6 +24,23 @@ export function bookingSummary(b) {
   ].join('\n');
 }
 
+// Asks the captain to confirm the boat is free before the customer pays.
+export async function askCaptain(b) {
+  const deadline = new Date(b.hold_expires_at.replace(' ', 'T') + 'Z');
+  const minutes = Math.max(1, Math.round((deadline - Date.now()) / 60_000));
+  await sendMessage(b.captain_phone, {
+    text:
+      `🎣 NEW REQUEST — ${b.code}\n` +
+      `Is *${b.boat_name}* free on *${formatDate(b.date)}*, ${formatTime(TRIP_START[b.hours])} for ${b.hours}h, ${b.guests} guests?\n` +
+      `Price: ${usd(b.total)} (client pays ${usd(b.paid_online)} deposit online, you collect ${usd(b.balance_cash)} cash)\n\n` +
+      `Reply *YES ${b.code}* or *NO ${b.code}*` + (minutes <= 120 ? ` within ${minutes} min.` : ' by 7:15 AM.'),
+    buttons: [
+      { id: `cap_yes_${b.code}`, title: '✅ YES, available' },
+      { id: `cap_no_${b.code}`, title: '❌ NO, busy' },
+    ],
+  }, { notification: true });
+}
+
 export async function onConfirmed(b) {
   if (b.kind === 'fishing') {
     await sendMessage(b.customer_phone, {

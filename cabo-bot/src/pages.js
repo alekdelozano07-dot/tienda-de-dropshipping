@@ -38,7 +38,7 @@ export function adminPage() {
   const upcoming = db.prepare(`
     SELECT bk.*, bt.name AS boat_name, c.name AS captain_name FROM bookings bk
     LEFT JOIN boats bt ON bt.id = bk.boat_id LEFT JOIN captains c ON c.id = bt.captain_id
-    WHERE bk.status IN ('confirmed','pending_payment') AND COALESCE(bk.end_date, bk.date) >= ? ORDER BY bk.date LIMIT 100
+    WHERE bk.status IN ('confirmed','pending_payment','awaiting_captain') AND COALESCE(bk.end_date, bk.date) >= ? ORDER BY bk.date LIMIT 100
   `).all(today);
   const sources = db.prepare(`
     SELECT COALESCE(source, 'direct') AS source, COUNT(*) AS n, SUM(paid_online) AS revenue

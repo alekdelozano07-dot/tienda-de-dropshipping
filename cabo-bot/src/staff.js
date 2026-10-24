@@ -2,21 +2,62 @@ import { getDb } from './db.js';
 import { config } from './config.js';
 import { sendMessage } from './whatsapp.js';
 import { caboToday, formatDate, formatTime, parseDate, TRIP_START } from './dates.js';
-import { getBooking, setStatus } from './bookings.js';
+import { approveRequest, captainRequests, declineRequest, getBooking, setStatus } from './bookings.js';
 import { bookingSummary } from './notify.js';
-import { setHumanMode } from './bot.js';
+import { captainAnswered, setHumanMode } from './bot.js';
 
 export function isCaptain(phone) {
   return !!getDb().prepare('SELECT 1 FROM captains WHERE phone = ? AND active = 1').get(phone);
 }
 
 const CAPTAIN_HELP =
-  'Captain commands:\n• *TRIPS* — your upcoming trips\n• *BLOCK 2026-11-20* — close a date (all your boats)\n• *UNBLOCK 2026-11-20* — reopen a date\n• *BLOCKED* — dates you closed';
+  'Captain commands:\n• *YES CB1234* / *NO CB1234* — answer a trip request\n• *TRIPS* — your upcoming trips\n• *BLOCK 2026-11-20* — close a date (all your boats)\n• *UNBLOCK 2026-11-20* — reopen a date\n• *BLOCKED* — dates you closed';
 
-export async function handleCaptainMessage(phone, text) {
+// YES/NO to a trip request. Accepts button replies, "YES CB1A2B3C", or a bare "yes"/"sí" when only one request is open.
+async function answerRequest(captain, text, replyId, reply) {
+  let answer, code;
+  const btn = replyId?.match(/^cap_(yes|no)_(CB\w+)$/);
+  if (btn) [, answer, code] = btn;
+  else {
+    const m = text.trim().match(/^(yes|y|si|sí|ok|no|n)\b[\s,.!]*(CB[0-9A-F]{6})?/i);
+    if (!m) return false;
+    answer = /^n/i.test(m[1]) ? 'no' : 'yes';
+    code = m[2]?.toUpperCase();
+  }
+  const open = captainRequests(captain.id);
+  if (!code) {
+    if (open.length === 1) code = open[0].code;
+    else if (!open.length) return false; // not about a request: treat as a normal message
+    else {
+      await reply(`You have ${open.length} open requests. Please reply with the code:\n` +
+        open.map((b) => `• ${b.code}: ${formatDate(b.date)} ${b.boat_name} — YES ${b.code} / NO ${b.code}`).join('\n'));
+      return true;
+    }
+  }
+  const b = getBooking(code);
+  if (!b || !open.some((o) => o.code === code)) {
+    await reply(b ? `Request ${code} is no longer open (status: ${b.status.replace('_', ' ')}).` : `I couldn't find request ${code}.`);
+    return true;
+  }
+  if (answer === 'yes') {
+    const approved = approveRequest(code);
+    if (!approved) { await reply(`Request ${code} is no longer open.`); return true; }
+    await reply(`👍 Thanks! We sent the payment link to the client. You'll get the final confirmation when they pay.`);
+    await captainAnswered(approved, 'approved');
+  } else {
+    const declined = declineRequest(code);
+    if (!declined) { await reply(`Request ${code} is no longer open.`); return true; }
+    await reply(`OK, ${formatDate(b.date)} is now closed for ${b.boat_name}. Send UNBLOCK ${b.date} if it frees up.`);
+    await captainAnswered(declined, 'declined');
+  }
+  return true;
+}
+
+export async function handleCaptainMessage(phone, text, replyId = null) {
   const db = getDb();
   const captain = db.prepare('SELECT * FROM captains WHERE phone = ?').get(phone);
   const boats = db.prepare('SELECT id, name FROM boats WHERE captain_id = ?').all(captain.id);
+  if (await answerRequest(captain, text, replyId, (t) => sendMessage(phone, { text: t }))) return;
   const [cmd, ...rest] = text.trim().split(/\s+/);
   const arg = rest.join(' ');
   const reply = (t) => sendMessage(phone, { text: t });

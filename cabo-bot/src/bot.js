@@ -2,12 +2,12 @@ import { getDb } from './db.js';
 import { config } from './config.js';
 import { sendMessage } from './whatsapp.js';
 import { createCheckout } from './payments.js';
-import { addDays, caboToday, formatDate, formatTime, parseDate, TRIP_START } from './dates.js';
+import { addDays, caboInstant, caboToday, captainDeadline, formatDate, formatTime, parseDate, TRIP_START } from './dates.js';
 import {
-  availableBoats, createFishingHold, createRentalHold, getBooking, itemAvailability,
+  availableBoats, createFishingRequest, createRentalHold, getBooking, itemAvailability,
   rentalItems, rentalQuote, setPaymentRef, setStatus, upcomingForPhone,
 } from './bookings.js';
-import { bookingSummary } from './notify.js';
+import { askCaptain, bookingSummary } from './notify.js';
 import { handleCaptainMessage, handleOwnerMessage, isCaptain } from './staff.js';
 
 const usd = (n) => `$${n.toLocaleString('en-US')}`;
@@ -74,7 +74,7 @@ export async function handleIncoming({ from, name, text = '', replyId = null }) 
   getDb().prepare('INSERT INTO messages_log (phone, direction, body) VALUES (?, ?, ?)').run(from, 'in', text || replyId || '');
 
   if (config.ownerPhone && from === config.ownerPhone) return handleOwnerMessage(text);
-  if (isCaptain(from)) return handleCaptainMessage(from, text);
+  if (isCaptain(from)) return handleCaptainMessage(from, text, replyId);
 
   const c = loadConversation(from);
   const input = { text: text || '', replyId, profileName: name };
@@ -98,7 +98,7 @@ export async function handleIncoming({ from, name, text = '', replyId = null }) 
       await showMenu(c);
     } else if (/^(my bookings?|my trips?|my reservations?)$/.test(lower) || replyId === 'mybookings') {
       await showMyBookings(c);
-    } else if (/^(cancel|stop)$/.test(lower) && c.state !== 'awaiting_payment') {
+    } else if (/^(cancel|stop)$/.test(lower) && !['awaiting_payment', 'awaiting_captain'].includes(c.state)) {
       await say(c, 'No problem, I cleared that. Type *menu* anytime to start again.');
       c.state = 'menu';
       c.data = { name: c.data.name };
@@ -177,6 +177,7 @@ const STATES = {
     const date = readFutureDate(input.text);
     if (date.error) return say(c, date.error);
     c.data.date = date.value;
+    delete c.data.excludeBoats;
     c.state = 'fish_guests';
     await say(c, `${formatDate(date.value)} 👍 How many people will be fishing (including kids)?`);
   },
@@ -224,15 +225,50 @@ const STATES = {
     const id = pick(c, input);
     if (id === 'change') return startFishing(c);
     if (id !== 'pay') return say(c, 'Tap *Confirm & pay* to lock the boat, or *Change* to edit.');
-    const b = createFishingHold({
+    const expiresAt = captainDeadline(config.captainReplyMinutes);
+    // Too close to departure to wait for the captain (e.g. booked late at night for tomorrow morning).
+    const departure = caboInstant(c.data.date, TRIP_START[c.data.hours]);
+    if (departure.getTime() - expiresAt.getTime() < 3 * 60 * 60 * 1000) {
+      return escalate(c, input, `Trip too soon to auto-confirm with the captain (${formatDate(c.data.date)}, boat #${c.data.boatId}, ${c.data.hours}h, ${c.data.guests} guests)`);
+    }
+    const b = createFishingRequest({
       phone: c.phone, name: c.data.name, source: c.source,
-      date: c.data.date, hours: c.data.hours, guests: c.data.guests, boatId: c.data.boatId,
+      date: c.data.date, hours: c.data.hours, guests: c.data.guests, boatId: c.data.boatId, expiresAt,
     });
     if (!b) {
       await say(c, 'Oh no, someone just booked that boat 😕 Here is what is still available:');
       return showBoats(c);
     }
-    return sendPaymentLink(c, b, `Fishing charter ${b.code} – deposit`);
+    await askCaptain(b);
+    c.state = 'awaiting_captain';
+    c.data.code = b.code;
+    const night = expiresAt.getTime() - Date.now() > (config.captainReplyMinutes + 1) * 60_000;
+    await say(c, night
+      ? `🙌 Got it! Our captains are out until 7 AM, so Capt. ${b.captain_name} will confirm the boat first thing in the morning. You'll get the payment link right here — nothing to pay yet.`
+      : `🙌 Great choice! I'm checking with Capt. ${b.captain_name} that the boat is ready for you. This usually takes a few minutes — you'll get the payment link right here. Nothing to pay yet.`);
+  },
+
+  async awaiting_captain(c, input) {
+    const b = getBooking(c.data.code);
+    if (!b || b.status !== 'awaiting_captain') return showMenu(c);
+    const id = pick(c, input);
+    if (id === 'cancelreq' || /^(cancel|stop)$/i.test(input.text.trim())) {
+      setStatus(b.code, 'cancelled');
+      await sendMessage(b.captain_phone, { text: `❌ Request ${b.code} (${formatDate(b.date)}) was cancelled by the client. No action needed.` });
+      await say(c, 'Request cancelled — nothing was charged.');
+      return showMenu(c);
+    }
+    if (id === 'otherboat') {
+      setStatus(b.code, 'cancelled');
+      await sendMessage(b.captain_phone, { text: `❌ Request ${b.code} (${formatDate(b.date)}) was cancelled by the client. No action needed.` });
+      c.data = { ...restoreTrip(b), name: c.data.name, excludeBoats: [b.boat_id] };
+      return showBoats(c);
+    }
+    await ask(c, { text: `Still waiting for Capt. ${b.captain_name} to confirm ${b.code} ⏳ You'll get the payment link here as soon as they reply.` }, [
+      { id: 'otherboat', title: 'Pick another boat' },
+      { id: 'cancelreq', title: 'Cancel request' },
+      { id: 'human', title: 'Talk to a person' },
+    ]);
   },
 
   // ----- Rentals -----
@@ -357,7 +393,8 @@ async function startFishing(c) {
 
 async function showBoats(c) {
   const { date, hours, guests } = c.data;
-  const boats = availableBoats(date, hours, guests).slice(0, 8);
+  const exclude = c.data.excludeBoats || [];
+  const boats = availableBoats(date, hours, guests).filter((b) => !exclude.includes(b.id)).slice(0, 8);
   c.state = 'fish_boat';
   if (!boats.length) {
     return ask(c, {
@@ -458,7 +495,34 @@ async function showRentalSummary(c) {
   ]);
 }
 
-async function sendPaymentLink(c, b, description) {
+function restoreTrip(b) {
+  return { date: b.date, hours: b.hours, guests: b.guests };
+}
+
+// Called when a captain answers a request (or doesn't in time).
+// outcome: 'approved' | 'declined' | 'timeout'
+export async function captainAnswered(b, outcome) {
+  const c = loadConversation(b.customer_phone);
+  if (outcome === 'approved') {
+    await sendPaymentLink(c, b, `Fishing charter ${b.code} – deposit`, `✅ Capt. ${b.captain_name} confirmed the boat for ${formatDate(b.date)}!\n\n`);
+  } else {
+    const excludeBoats = [...new Set([...(c.data.code === b.code ? c.data.excludeBoats || [] : []), b.boat_id])];
+    c.data = { ...restoreTrip(b), name: c.data.name || b.customer_name, excludeBoats };
+    const others = availableBoats(b.date, b.hours, b.guests).filter((x) => !excludeBoats.includes(x.id));
+    if (!others.length) {
+      await escalate(c, { text: '', profileName: b.customer_name },
+        `Capt. ${b.captain_name} ${outcome === 'declined' ? 'said NO' : "didn't answer"} for ${b.code} and no other boats are free (${formatDate(b.date)}, ${b.hours}h, ${b.guests} guests)`);
+    } else {
+      await say(c, outcome === 'declined'
+        ? `😕 Sorry, Capt. ${b.captain_name}'s boat is no longer available on ${formatDate(b.date)}. Here are other great options:`
+        : `⏳ Capt. ${b.captain_name} hasn't confirmed yet, so let's not keep you waiting. Here are other boats available on ${formatDate(b.date)}:`);
+      await showBoats(c);
+    }
+  }
+  saveConversation(c);
+}
+
+async function sendPaymentLink(c, b, description, intro = '') {
   const { url, ref } = await createCheckout(b, description);
   setPaymentRef(b.code, ref);
   c.state = 'awaiting_payment';
@@ -466,5 +530,5 @@ async function sendPaymentLink(c, b, description) {
   const what = b.kind === 'fishing'
     ? `your *${usd(b.paid_online)} deposit* to lock the boat. The remaining ${usd(b.balance_cash)} is paid in cash to the captain on the day.`
     : `*${usd(b.paid_online)}* to reserve your gear.`;
-  await say(c, `💳 Pay ${what}\n\n👉 ${url}\n\nWe're holding it for you for ${config.holdMinutes} minutes. You'll get your confirmation here right after paying.`);
+  await say(c, `${intro}💳 Pay ${what}\n\n👉 ${url}\n\nWe're holding it for you for ${config.holdMinutes} minutes. You'll get your confirmation here right after paying.`);
 }

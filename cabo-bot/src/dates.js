@@ -80,3 +80,11 @@ export function parseDate(text, now = new Date()) {
   }
   return null;
 }
+
+// Captains answer 7 AM–9 PM Cabo time. Requests made at night get their reply window from 7 AM.
+export function captainDeadline(minutes, now = new Date()) {
+  const hour = new Date(now.getTime() + CABO_OFFSET_MS).getUTCHours();
+  if (hour >= 7 && hour < 21) return new Date(now.getTime() + minutes * 60_000);
+  const day = hour >= 21 ? addDays(caboToday(now), 1) : caboToday(now);
+  return new Date(caboInstant(day, '07:00').getTime() + minutes * 60_000);
+}
