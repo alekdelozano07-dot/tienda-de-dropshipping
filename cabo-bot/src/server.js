@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { pathToFileURL } from 'node:url';
 import { config, devMode } from './config.js';
 import { getDb } from './db.js';
 import { handleIncoming } from './bot.js';
@@ -137,7 +138,7 @@ export async function route(req, res) {
   send(res, 404, 'Not found');
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   getDb();
   http.createServer((req, res) => route(req, res).catch((e) => {
     console.error(e);
