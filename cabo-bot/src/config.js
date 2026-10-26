@@ -24,6 +24,13 @@ export const config = {
   massageCash60: Number(env.MASSAGE_CASH_60 || 67),
   massageCash90: Number(env.MASSAGE_CASH_90 || 95),
 
+  // Claude reads messages the keyword rules don't understand. Without a key the bot works as before.
+  ai: {
+    apiKey: env.ANTHROPIC_API_KEY || '',
+    model: env.AI_MODEL || 'claude-opus-5-5',
+    knowledgePath: env.KNOWLEDGE_PATH || './knowledge.md',
+  },
+
   whatsapp: {
     token: env.WHATSAPP_TOKEN || '',
     phoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID || '',

@@ -8,6 +8,7 @@ import { handlePayment } from '../src/server.js';
 import { tick } from '../src/scheduler.js';
 import { addDays, caboInstant, caboToday, parseDate } from '../src/dates.js';
 import { availableBoats } from '../src/bookings.js';
+import { setInterpreter } from '../src/ai.js';
 
 const OWNER = '5210000000000';
 const CAPTAIN = '5216241000001';
@@ -30,7 +31,10 @@ const lastTo = (phone) => [...outbox].reverse().find((m) => m.to === phone)?.mes
 const payCode = (phone) => lastTo(phone).text.match(/dev\/pay\/(CB\w+)/)[1];
 const allTo = (phone) => outbox.filter((m) => m.to === phone).map((m) => m.message.text).join('\n---\n');
 
-beforeEach(() => { outbox.length = 0; seed(); });
+beforeEach(() => { outbox.length = 0; seed(); setInterpreter(null); });
+
+// A fake AI answer: every field the real schema requires, with the given ones filled in.
+const AI = (fields) => ({ action: 'unknown', reply: '', flow: 'none', date: '', number: 0, hours: 0, minutes: 0, option_id: '', ...fields });
 
 test('parses common date formats', () => {
   const now = new Date('2026-10-24T18:00:00Z'); // Sat Oct 24 in Cabo
@@ -156,8 +160,7 @@ test('massage booking: fixed cash to therapist, margin online, slot capacity', a
 
 test('massage in Spanish and day-before reminder', async () => {
   const MX = '5213310000000';
-  await say('Hola, quiero un masaje', MX);
-  await say('masaje', MX);
+  await say('Hola, quiero un masaje', MX); // names the activity: skips the welcome
   assert.match(lastTo(MX).text, /Qué día te gustaría tu masaje/);
 
   const date = addDays(caboToday(), 1);
@@ -167,6 +170,53 @@ test('massage in Spanish and day-before reminder', async () => {
   await tick(new Date(caboInstant(caboToday(), '17:05')));
   assert.match(lastTo(TOURIST).text, /massage is tomorrow/);
   assert.match(lastTo(OWNER).text, /Masaje mañana/);
+});
+
+test('AI: a free-text request goes straight to the boats with date, people and hours filled in', async () => {
+  const date = addDays(caboToday(), 3);
+  const calls = [];
+  setInterpreter(async (ctx) => { calls.push(ctx); return AI({ action: 'switch', flow: 'fishing', date, number: 4, hours: 8 }); });
+  await say('hi');
+  assert.equal(calls.length, 0); // greetings never reach the AI
+  await say(`we are 4 and want the full day trip on ${date}`);
+  assert.equal(calls[0].step, 'menu');
+  assert.equal(calls[0].last_message, `we are 4 and want the full day trip on ${date}`);
+  assert.match(lastTo(TOURIST).text, /boats available/);
+  assert.match(lastTo(TOURIST).text, /La Reina/);
+});
+
+test('AI: answers a question mid-flow, then asks the same step again', async () => {
+  setInterpreter(async () => AI({ action: 'answer', reply: 'Yes! Rods and bait are included.' }));
+  await say('hi');
+  await say('Fishing trip', TOURIST, 'fish');
+  await say(addDays(caboToday(), 3));
+  await say('are rods included?');
+  const [answer, again] = outbox.filter((m) => m.to === TOURIST).slice(-2).map((m) => m.message.text);
+  assert.equal(answer, 'Yes! Rods and bait are included.');
+  assert.match(again, /How many people/);
+});
+
+test('AI: fills the value of the current step from a sentence', async () => {
+  setInterpreter(async () => AI({ action: 'value', number: 4 }));
+  await say('hi');
+  await say('Fishing trip', TOURIST, 'fish');
+  await say(addDays(caboToday(), 3));
+  await say('the four of us');
+  assert.match(lastTo(TOURIST).text, /How long would you like to fish/);
+});
+
+test('AI: hands the chat to a person, and falls back to the usual hint when it fails', async () => {
+  setInterpreter(async () => null); // API down or no key
+  await say('hi');
+  await say('Fishing trip', TOURIST, 'fish');
+  await say(addDays(caboToday(), 3));
+  await say('blah');
+  assert.match(lastTo(TOURIST).text, /number of guests/);
+
+  setInterpreter(async () => AI({ action: 'human' }));
+  await say('my boat yesterday was terrible, I want a refund');
+  assert.match(lastTo(TOURIST).text, /connecting you with our team/);
+  assert.match(lastTo(OWNER).text, /La IA no pudo contestar/);
 });
 
 test('human handoff and owner reply', async () => {

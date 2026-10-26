@@ -58,10 +58,11 @@ Haz un QR distinto por lugar para saber cuál funciona: `https://tu-dominio.com/
 
 ## 1. Probarlo en tu computadora (sin cuentas, 2 minutos)
 
-Necesitas [Node.js 22.9 o más nuevo](https://nodejs.org). No hay que instalar paquetes.
+Necesitas [Node.js 22.9 o más nuevo](https://nodejs.org).
 
 ```bash
 cd cabo-bot
+npm install       # instala el SDK de Anthropic (para la IA)
 npm run seed      # carga capitanes, barcos y equipo de ejemplo
 npm start
 ```
@@ -102,11 +103,27 @@ Los números van en formato internacional, solo dígitos: México `521` + 10 dí
 
 De la base de datos del bot: un barco está libre si no tiene reservas del bot ese día, nadie lo tiene apartado y el capitán no cerró la fecha. Como el capitán también vende por fuera, **siempre se le pregunta antes de cobrar**. Cuando dice NO, ese día queda cerrado para que no se le vuelva a preguntar. Aun así conviene que los capitanes manden `BLOCK fecha` cuando venden por su cuenta: así el turista ni siquiera ve ese barco.
 
-## 5. Publicarlo en internet
+## 5. Activar la IA (opcional, recomendado)
+
+Sin IA el bot entiende botones, números, fechas y palabras clave. Con IA también entiende frases normales y con faltas de ortografía ("we're 4 and want to fish next Friday"), contesta preguntas y saca de una sola frase la fecha, las personas y las horas.
+
+1. Crea una cuenta en [platform.claude.com](https://platform.claude.com), agrega saldo y crea una API key.
+2. Ponla en tu `.env`: `ANTHROPIC_API_KEY=sk-ant-...`
+3. Escribe la información de tu negocio en **`knowledge.md`** (qué incluye cada barco, cancelaciones, clima, niños, propinas…). La IA contesta **solo** con eso y con los barcos, artículos y precios de la base de datos. Si algo no está ahí, te pasa el chat a ti. Puedes editarlo cuando quieras, sin reiniciar el bot.
+
+Cómo funciona: los botones y las palabras clave siguen igual (y gratis). La IA solo se usa cuando el bot no entiende un mensaje, y nunca reserva, cobra ni confirma nada: solo le dice al bot qué quiso decir el cliente. Si la IA falla o no hay key, el bot contesta como siempre.
+
+| Variable | Por defecto | Qué es |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | (vacío = sin IA) | Tu clave de la API de Claude |
+| `AI_MODEL` | `claude-opus-5-5` | Modelo de Claude. `claude-haiku-5-5` es mucho más barato y suele bastar para esto |
+| `KNOWLEDGE_PATH` | `./knowledge.md` | Archivo con la información de tu negocio |
+
+## 6. Publicarlo en internet
 
 El bot es un servidor que debe estar encendido siempre (por los recordatorios) y guarda los datos en un archivo SQLite, así que necesita un hosting con **disco persistente**: [Railway](https://railway.app) o [Render](https://render.com) (con un *Disk* montado), o cualquier VPS.
 
-- Comando de inicio: `npm start` (carpeta `cabo-bot`)
+- Comando de instalación: `npm install`; comando de inicio: `npm start` (carpeta `cabo-bot`)
 - Variables de entorno: copia `.env.example` → `.env` y llénalo (o ponlas en el panel del hosting)
 - `DB_PATH` debe apuntar al disco persistente (ej. `/data/cabo.db`)
 - `PUBLIC_URL` = la URL pública que te da el hosting
@@ -138,6 +155,8 @@ Si alguien paga después de que venció su apartado y el barco ya lo tomó otro,
 ```
 src/server.js     servidor: webhooks de WhatsApp y Stripe, QR, admin, simulador
 src/bot.js        la conversación con el turista
+src/ai.js         la IA (Claude) que entiende los mensajes que el bot no entiende
+knowledge.md      la información de tu negocio que usa la IA para contestar
 src/bookings.js   disponibilidad, apartados, pagos
 src/staff.js      comandos del dueño y de los capitanes
 src/notify.js     mensajes de confirmación y recordatorios

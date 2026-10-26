@@ -10,6 +10,7 @@ import {
 import { askCaptain, bookingSummary, tellCaptain } from './notify.js';
 import { handleCaptainMessage, handleOwnerMessage, isCaptain } from './staff.js';
 import { boatDescription, detectLang, fmtDate, fmtTime, itemName, langSwitch, t } from './i18n.js';
+import { aiEnabled, interpret } from './ai.js';
 
 const usd = (n) => `$${n.toLocaleString('en-US')}`;
 const MAX_DAYS_AHEAD = 180;
@@ -139,10 +140,12 @@ export async function handleIncoming({ from, name, text = '', replyId = null }) 
   saveConversation(c);
 }
 
-// After a language switch mid-flow, ask the current question again in the new language.
+// Asks the current question again (after a language switch, or after answering a question mid-flow).
 async function repeatStep(c) {
   const d = c.data;
   switch (c.state) {
+    case 'new':
+    case 'menu': return showMenu(c);
     case 'fish_date': return say(c, T(c, 'fishStart'));
     case 'fish_guests': return say(c, T(c, 'askGuests', D(c, d.date)));
     case 'fish_hours': return STATES.fish_guests(c, { text: String(d.guests) });
@@ -200,6 +203,142 @@ async function escalate(c, input, reason) {
   }, { notification: true, lang: owner });
 }
 
+// ---------- AI fallback ----------
+// When the keyword rules don't understand a message, Claude says what the customer meant (see ai.js).
+// The bot still does every booking step itself; the AI only fills in values, switches activity,
+// answers questions from knowledge.md, or hands the chat to a person.
+
+const EXPECTS = {
+  menu: 'which activity they want: fishing, rental (beach/baby gear) or massage',
+  fish_date: 'the date of the fishing trip',
+  fish_guests: 'how many people are going fishing',
+  fish_hours: 'trip length: 4, 6 or 8 hours',
+  fish_boat: 'which boat (option_id)',
+  fish_confirm: 'confirm and pay (option "pay") or change the trip (option "change")',
+  awaiting_captain: 'nothing: they are waiting for the captain to confirm the boat',
+  rent_start: 'the date the rental starts',
+  rent_days: 'for how many days they need the gear',
+  rent_items: 'which item to add (option_id), or "checkout" when done',
+  rent_qty: 'how many units of the item',
+  rent_confirm: 'confirm and pay (option "pay") or change the rental (option "change")',
+  massage_date: 'the date of the massage',
+  massage_people: 'how many people get a massage at the same time',
+  massage_length: 'massage length: 60 or 90 minutes',
+  massage_time: 'which time slot (option_id)',
+  massage_confirm: 'confirm and pay (option "pay") or change the booking (option "change")',
+  awaiting_payment: 'nothing: they have a payment link to pay',
+};
+
+const flowOf = (state) => (state.startsWith('fish') ? 'fishing' : state.startsWith('rent') ? 'rental' : state.startsWith('massage') ? 'massage' : 'none');
+
+function aiContext(c, input) {
+  const recent = getDb().prepare('SELECT direction, body FROM messages_log WHERE phone = ? ORDER BY id DESC LIMIT 8').all(c.phone)
+    .reverse().map((m) => ({ from: m.direction === 'in' ? 'customer' : 'bot', text: m.body.slice(0, 400) }));
+  return {
+    today: caboToday(), customer_language: c.lang, step: c.state, step_expects: EXPECTS[c.state] || '',
+    options: c.data.options || [], recent_conversation: recent, last_message: input.text,
+  };
+}
+
+// Returns true when the AI understood the message and the bot already replied.
+async function understand(c, input) {
+  if (input.ai || input.replyId || !input.text.trim() || !aiEnabled()) return false;
+  const r = await interpret(aiContext(c, input));
+  if (!r) return false;
+  switch (r.action) {
+    case 'answer':
+      if (!r.reply) return false;
+      await say(c, r.reply);
+      await repeatStep(c);
+      return true;
+    case 'human':
+      await escalate(c, input, t(owner, 'reasonAI'));
+      return true;
+    case 'switch':
+      // Don't drop a booking that is waiting for the captain or the payment.
+      if (r.flow === 'none' || ['awaiting_captain', 'awaiting_payment'].includes(c.state)) return false;
+      await fillFlow(c, r.flow, r);
+      return true;
+    case 'value':
+      return useValue(c, r);
+    default:
+      return false;
+  }
+}
+
+// Feeds the value the AI extracted back into the current step, as if the customer had typed it plainly.
+async function useValue(c, r) {
+  const again = (fields) => STATES[c.state](c, { text: '', ...fields, ai: true }).then(() => true);
+  switch (c.state) {
+    case 'menu':
+      return r.flow !== 'none' && fillFlow(c, r.flow, r).then(() => true);
+    case 'fish_date':
+    case 'rent_start':
+    case 'massage_date':
+      return !!r.date && fillFlow(c, flowOf(c.state), r).then(() => true);
+    case 'fish_guests':
+    case 'rent_days':
+    case 'rent_qty':
+    case 'massage_people':
+      return r.number > 0 && again({ text: String(r.number) });
+    case 'fish_hours':
+      return [4, 6, 8].includes(r.hours) && again({ text: String(r.hours) });
+    case 'massage_length':
+      return [60, 90].includes(r.minutes) && again({ text: String(r.minutes) });
+    default:
+      if (r.option_id === 'human') return escalate(c, { text: '' }, t(owner, 'reasonAsked')).then(() => true);
+      if (!(c.data.options || []).some((o) => o.id === r.option_id)) return false;
+      return again({ replyId: r.option_id });
+  }
+}
+
+// Starts a flow with whatever the customer already told us and asks only what is still missing.
+// r.number means people for fishing and massage, days for rentals.
+async function fillFlow(c, flow, r) {
+  const start = { fishing: startFishing, rental: startRental, massage: startMassage }[flow];
+  if (!r.date) return start(c);
+  const d = readFutureDate(c, r.date);
+  c.data = { name: c.data.name };
+  if (d.error) {
+    c.state = { fishing: 'fish_date', rental: 'rent_start', massage: 'massage_date' }[flow];
+    return say(c, d.error);
+  }
+  if (flow === 'fishing') {
+    c.data.date = d.value;
+    if (!(r.number >= 1 && r.number <= 30)) {
+      c.state = 'fish_guests';
+      return say(c, T(c, 'askGuests', D(c, d.value)));
+    }
+    if (![4, 6, 8].includes(r.hours)) return STATES.fish_guests(c, { text: String(r.number) });
+    c.data.guests = r.number;
+    c.data.hours = r.hours;
+    return showBoats(c);
+  }
+  if (flow === 'rental') {
+    c.data.start = d.value;
+    if (!(r.number >= 1 && r.number <= 30)) {
+      c.state = 'rent_days';
+      return say(c, T(c, 'askDays', D(c, d.value)));
+    }
+    c.data.end = addDays(d.value, r.number - 1);
+    c.data.cart = [];
+    return showItems(c);
+  }
+  c.data.date = d.value;
+  if (config.massageTherapists === 1) c.data.people = 1;
+  else if (r.number >= 1 && r.number <= config.massageTherapists) c.data.people = r.number;
+  else return askMassagePeople(c);
+  if (![60, 90].includes(r.minutes)) return askMassageLength(c);
+  c.data.minutes = r.minutes;
+  return showMassageTimes(c);
+}
+
+// The step didn't understand the message: try the AI, otherwise send the step's usual hint.
+async function notUnderstood(c, input, text) {
+  if (await understand(c, input)) return;
+  await say(c, text);
+}
+
 // ---------- States ----------
 
 const FISH_WORDS = /fish|boat|charter|marlin|tuna|dorado|pesca|pescar|barco|lancha|atun/;
@@ -207,12 +346,21 @@ const RENT_WORDS = /rent|beach|umbrella|chair|cooler|stroller|crib|baby|car seat
 const MASSAGE_WORDS = /massage|masaje|spa/;
 
 const STATES = {
-  new: welcome,
+  // A first message that already names an activity skips the welcome and goes straight to it.
+  async new(c, input) {
+    const text = norm(input.text);
+    if (![FISH_WORDS, RENT_WORDS, MASSAGE_WORDS].some((re) => re.test(text))) return welcome(c, input);
+    c.data.name = c.data.name || input.profileName || null;
+    return STATES.menu(c, input);
+  },
 
   async menu(c, input) {
     const text = norm(input.text);
-    const choice = pick(c, input)
+    const picked = pick(c, input);
+    const choice = picked
       || (FISH_WORDS.test(text) ? 'fish' : MASSAGE_WORDS.test(text) ? 'massage' : RENT_WORDS.test(text) ? 'rent' : null);
+    // A longer free-text message ("4 of us want to fish next Friday") goes to the AI to pick up the details.
+    if (!picked && (!choice || text.split(/\s+/).length > 3) && await understand(c, input)) return;
     if (choice === 'fish') return startFishing(c);
     if (choice === 'rent') return startRental(c);
     if (choice === 'massage') return startMassage(c);
@@ -223,7 +371,7 @@ const STATES = {
 
   async fish_date(c, input) {
     const date = readFutureDate(c, input.text);
-    if (date.error) return say(c, date.error);
+    if (date.error) return date.unparsed ? notUnderstood(c, input, date.error) : say(c, date.error);
     c.data.date = date.value;
     delete c.data.excludeBoats;
     c.state = 'fish_guests';
@@ -232,7 +380,7 @@ const STATES = {
 
   async fish_guests(c, input) {
     const n = parseInt(input.text, 10);
-    if (!(n >= 1 && n <= 30)) return say(c, T(c, 'guestsInvalid'));
+    if (!(n >= 1 && n <= 30)) return notUnderstood(c, input, T(c, 'guestsInvalid'));
     c.data.guests = n;
     c.state = 'fish_hours';
     await ask(c, { text: T(c, 'askHours') }, [
@@ -244,7 +392,7 @@ const STATES = {
 
   async fish_hours(c, input) {
     const id = pick(c, input) || ({ 4: 'h4', 6: 'h6', 8: 'h8' })[parseInt(input.text, 10)];
-    if (!id) return say(c, T(c, 'hoursInvalid'));
+    if (!id) return notUnderstood(c, input, T(c, 'hoursInvalid'));
     c.data.hours = Number(id.slice(1));
     return showBoats(c);
   },
@@ -253,7 +401,7 @@ const STATES = {
     const id = pick(c, input);
     if (id === 'otherdate') { c.state = 'fish_date'; return say(c, T(c, 'otherDatePrompt')); }
     if (id === 'otherhours') { c.state = 'fish_guests'; return STATES.fish_guests(c, { text: String(c.data.guests) }); }
-    if (!id?.startsWith('boat')) return say(c, T(c, 'pickBoat'));
+    if (!id?.startsWith('boat')) return notUnderstood(c, input, T(c, 'pickBoat'));
     c.data.boatId = Number(id.slice(4));
     return askName(c, 'fish_confirm');
   },
@@ -271,7 +419,7 @@ const STATES = {
   async fish_confirm(c, input) {
     const id = pick(c, input);
     if (id === 'change') return startFishing(c);
-    if (id !== 'pay') return say(c, T(c, 'confirmFishHint'));
+    if (id !== 'pay') return notUnderstood(c, input, T(c, 'confirmFishHint'));
     const expiresAt = captainDeadline(config.captainReplyMinutes);
     // Too close to departure to wait for the captain (e.g. booked late at night for tomorrow morning).
     const departure = caboInstant(c.data.date, TRIP_START[c.data.hours]);
@@ -309,6 +457,7 @@ const STATES = {
       c.data = { ...restoreTrip(b), name: c.data.name, excludeBoats: [b.boat_id] };
       return showBoats(c);
     }
+    if (!id && await understand(c, input)) return;
     await ask(c, { text: T(c, 'waitingCaptain', b.captain_name, b.code) }, [
       { id: 'otherboat', title: T(c, 'otherBoat') },
       { id: 'cancelreq', title: T(c, 'cancelRequest') },
@@ -320,7 +469,7 @@ const STATES = {
 
   async rent_start(c, input) {
     const date = readFutureDate(c, input.text);
-    if (date.error) return say(c, date.error);
+    if (date.error) return date.unparsed ? notUnderstood(c, input, date.error) : say(c, date.error);
     c.data.start = date.value;
     c.state = 'rent_days';
     await say(c, T(c, 'askDays', D(c, date.value)));
@@ -328,7 +477,7 @@ const STATES = {
 
   async rent_days(c, input) {
     const n = parseInt(input.text, 10);
-    if (!(n >= 1 && n <= 30)) return say(c, T(c, 'daysInvalid'));
+    if (!(n >= 1 && n <= 30)) return notUnderstood(c, input, T(c, 'daysInvalid'));
     c.data.end = addDays(c.data.start, n - 1);
     c.data.cart = [];
     return showItems(c);
@@ -341,7 +490,7 @@ const STATES = {
       c.state = 'rent_address';
       return say(c, T(c, 'askAddress'));
     }
-    if (!id?.startsWith('item')) return say(c, T(c, 'pickItem'));
+    if (!id?.startsWith('item')) return notUnderstood(c, input, T(c, 'pickItem'));
     const itemId = Number(id.slice(4));
     const free = itemAvailability(itemId, c.data.start, c.data.end) - (c.data.cart.find((x) => x.itemId === itemId)?.qty || 0);
     const item = rentalItems().find((i) => i.id === itemId);
@@ -359,7 +508,7 @@ const STATES = {
   async rent_qty(c, input) {
     const id = pick(c, input);
     const n = id ? Number(id.slice(1)) : parseInt(input.text, 10);
-    if (!(n >= 1 && n <= c.data.pendingMax)) return say(c, T(c, 'qtyInvalid', c.data.pendingMax));
+    if (!(n >= 1 && n <= c.data.pendingMax)) return notUnderstood(c, input, T(c, 'qtyInvalid', c.data.pendingMax));
     const line = c.data.cart.find((x) => x.itemId === c.data.pendingItem);
     if (line) line.qty += n;
     else c.data.cart.push({ itemId: c.data.pendingItem, qty: n });
@@ -378,7 +527,7 @@ const STATES = {
   async rent_confirm(c, input) {
     const id = pick(c, input);
     if (id === 'change') return startRental(c);
-    if (id !== 'pay') return say(c, T(c, 'confirmRentHint'));
+    if (id !== 'pay') return notUnderstood(c, input, T(c, 'confirmRentHint'));
     const b = createRentalHold({
       phone: c.phone, name: c.data.name, source: c.source, lang: c.lang,
       start: c.data.start, end: c.data.end, items: c.data.cart, address: c.data.address,
@@ -395,7 +544,7 @@ const STATES = {
 
   async massage_date(c, input) {
     const date = readFutureDate(c, input.text);
-    if (date.error) return say(c, date.error);
+    if (date.error) return date.unparsed ? notUnderstood(c, input, date.error) : say(c, date.error);
     c.data.date = date.value;
     // With a single therapist there is nothing to ask: one person per slot.
     if (config.massageTherapists === 1) {
@@ -408,14 +557,14 @@ const STATES = {
   async massage_people(c, input) {
     const id = pick(c, input);
     const n = id ? Number(id.slice(1)) : parseInt(input.text, 10);
-    if (!(n >= 1 && n <= config.massageTherapists)) return say(c, T(c, 'massagePeopleInvalid', config.massageTherapists));
+    if (!(n >= 1 && n <= config.massageTherapists)) return notUnderstood(c, input, T(c, 'massagePeopleInvalid', config.massageTherapists));
     c.data.people = n;
     return askMassageLength(c);
   },
 
   async massage_length(c, input) {
     const id = pick(c, input) || ({ 60: 'm60', 90: 'm90' })[parseInt(input.text, 10)];
-    if (!id) return say(c, T(c, 'massageLengthInvalid'));
+    if (!id) return notUnderstood(c, input, T(c, 'massageLengthInvalid'));
     c.data.minutes = Number(id.slice(1));
     return showMassageTimes(c);
   },
@@ -423,7 +572,7 @@ const STATES = {
   async massage_time(c, input) {
     const id = pick(c, input);
     if (id === 'otherdate') { c.state = 'massage_date'; return say(c, T(c, 'otherDatePrompt')); }
-    if (!id?.startsWith('time')) return say(c, T(c, 'pickTime'));
+    if (!id?.startsWith('time')) return notUnderstood(c, input, T(c, 'pickTime'));
     c.data.time = id.slice(4);
     c.state = 'massage_address';
     await say(c, T(c, 'massageAddress'));
@@ -439,7 +588,7 @@ const STATES = {
   async massage_confirm(c, input) {
     const id = pick(c, input);
     if (id === 'change') return startMassage(c);
-    if (id !== 'pay') return say(c, T(c, 'confirmMassageHint'));
+    if (id !== 'pay') return notUnderstood(c, input, T(c, 'confirmMassageHint'));
     const b = createMassageHold({
       phone: c.phone, name: c.data.name, source: c.source, lang: c.lang,
       date: c.data.date, time: c.data.time, minutes: c.data.minutes, people: c.data.people, address: c.data.address,
@@ -468,6 +617,7 @@ const STATES = {
       return showMenu(c);
     }
     if (id === 'menu') return showMenu(c);
+    if (!id && await understand(c, input)) return;
     await ask(c, { text: T(c, 'waitingPayment', b.code) }, [
       { id: 'resend', title: T(c, 'resend') },
       { id: 'cancelhold', title: T(c, 'cancelReservation') },
@@ -481,7 +631,7 @@ const STATES = {
 function readFutureDate(c, text) {
   const date = parseDate(text, new Date(), c.lang);
   const today = caboToday();
-  if (!date) return { error: T(c, 'dateNotUnderstood') };
+  if (!date) return { error: T(c, 'dateNotUnderstood'), unparsed: true };
   if (date < today) return { error: T(c, 'datePassed') };
   if (date === today) return { error: T(c, 'dateToday') };
   if (date > addDays(today, MAX_DAYS_AHEAD)) return { error: T(c, 'dateTooFar', MAX_DAYS_AHEAD) };

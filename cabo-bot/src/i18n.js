@@ -247,6 +247,7 @@ const en = {
     `🙋 HUMAN NEEDED — +${phone}${name ? ` (${name})` : ''}\nLanguage: ${lang === 'es' ? 'Spanish' : 'English'}\nReason: ${reason}\nStep: ${state}\nLast message: "${text}"\n\n` +
     `Reply with: REPLY ${phone} your message\nHand back to bot: BOT ${phone}`,
   reasonAsked: 'Customer asked for a person',
+  reasonAI: "The AI couldn't answer from knowledge.md (question, complaint or a person requested)",
   reasonError: (msg) => `Bot error: ${msg}`,
   reasonTooSoon: (date, boat, hours, guests) => `Trip too soon to auto-confirm with the captain (${date}, boat #${boat}, ${hours}h, ${guests} guests)`,
   reasonNoBoats: (captain, declined, code, date, hours, guests) =>
@@ -485,6 +486,7 @@ const es = {
     `🙋 SE NECESITA UNA PERSONA — +${phone}${name ? ` (${name})` : ''}\nIdioma: ${lang === 'es' ? 'español' : 'inglés'}\nMotivo: ${reason}\nPaso: ${state}\nÚltimo mensaje: "${text}"\n\n` +
     `Responde con: RESPONDER ${phone} tu mensaje\nDevolver al bot: BOT ${phone}`,
   reasonAsked: 'El cliente pidió hablar con una persona',
+  reasonAI: 'La IA no pudo contestar con knowledge.md (pregunta, queja o pidió una persona)',
   reasonError: (msg) => `Error del bot: ${msg}`,
   reasonTooSoon: (date, boat, hours, guests) => `Viaje demasiado pronto para confirmar con el capitán (${date}, barco #${boat}, ${hours} h, ${guests} personas)`,
   reasonNoBoats: (captain, declined, code, date, hours, guests) =>
