@@ -340,6 +340,18 @@ test('detects the language of the first message', async () => {
   assert.equal(detectLang('👍', '15551234567'), 'en');
 });
 
+test('before a booking starts, the bot follows the language the customer writes in', async () => {
+  await say('hola buenos dias');
+  assert.match(lastTo(TOURIST).text, /Te damos la bienvenida/);
+  await say('hi good morning');
+  assert.match(lastTo(TOURIST).text, /Welcome/);
+  assert.equal(lastTo(TOURIST).list.rows[0].title, '🎣 Fishing trip');
+  // Once a booking is under way, a stray word doesn't flip the language
+  await say('Fishing trip', TOURIST, 'fish');
+  await say('mañana');
+  assert.match(lastTo(TOURIST).text, /How many people/);
+});
+
 test('Spanish-speaking tourist books a trip in Spanish, captain 2 gets it in English', async () => {
   const MX = '5213310000000';
   const date = addDays(caboToday(), 4);

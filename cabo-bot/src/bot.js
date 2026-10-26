@@ -9,7 +9,7 @@ import {
 } from './bookings.js';
 import { askCaptain, bookingSummary, tellCaptain } from './notify.js';
 import { handleCaptainMessage, handleOwnerMessage, isCaptain } from './staff.js';
-import { boatDescription, detectLang, fmtDate, fmtTime, itemName, langSwitch, t } from './i18n.js';
+import { boatDescription, detectLang, fmtDate, fmtTime, guessLang, itemName, langSwitch, t } from './i18n.js';
 import { aiEnabled, interpret } from './ai.js';
 
 const usd = (n) => `$${n.toLocaleString('en-US')}`;
@@ -96,6 +96,8 @@ export async function handleIncoming({ from, name, text = '', replyId = null }) 
   const input = { text: text || '', replyId, profileName: name };
   const lower = norm(input.text);
   if (!c.lang) c.lang = detectLang(input.text, from);
+  // Before a booking starts, follow the language the customer is actually writing in.
+  else if (['new', 'menu'].includes(c.state) && !replyId) c.lang = guessLang(input.text) || c.lang;
 
   // Track which QR / channel the customer came from: wa.me links prefill "... (ref: airbnb-casa-azul)"
   const ref = input.text.match(/\(ref:\s*([\w-]+)\)/i);

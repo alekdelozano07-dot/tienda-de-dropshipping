@@ -17,13 +17,18 @@ export function fmtTime(time, lang = 'en') {
 
 const strip = (s) => String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-// Guess the language of a first message. Falls back to Spanish for Mexican numbers, English otherwise.
-export function detectLang(text, phone = '') {
+// The language a message is clearly written in, or null when it can't tell (a number, an emoji...).
+export function guessLang(text) {
   const t = strip(text);
   if (/[¿¡ñ]/.test(String(text).toLowerCase())) return 'es';
   if (/\b(hola|buen[oa]s?|quiero|quisiera|pesca|pescar|renta|rentar|gracias|por favor|cuanto|precio|barco|lancha|playa|reserva[r]?|informacion|necesito|tienen|espanol|me interesa|disponible|masaje)\b/.test(t)) return 'es';
   if (/\b(hi|hello|hey|good (morning|afternoon|evening)|i'?d like|i want|fishing|rental|rent|boat|beach|book|price|english|please|thanks|massage)\b/.test(t)) return 'en';
-  return String(phone).startsWith('52') ? 'es' : 'en';
+  return null;
+}
+
+// Guess the language of a first message. Falls back to Spanish for Mexican numbers, English otherwise.
+export function detectLang(text, phone = '') {
+  return guessLang(text) || (String(phone).startsWith('52') ? 'es' : 'en');
 }
 
 // "español" / "english" typed at any time switches the language.
