@@ -26,6 +26,8 @@ const MIGRATIONS = [
   'ALTER TABLE rental_items ADD COLUMN name_es TEXT',
   "ALTER TABLE bookings ADD COLUMN lang TEXT NOT NULL DEFAULT 'en'",
   'ALTER TABLE conversations ADD COLUMN lang TEXT',
+  'ALTER TABLE bookings ADD COLUMN start_time TEXT',
+  'ALTER TABLE bookings ADD COLUMN duration_min INTEGER',
 ];
 
 function migrate(db) {
@@ -75,7 +77,7 @@ CREATE TABLE IF NOT EXISTS rental_items (
 CREATE TABLE IF NOT EXISTS bookings (
   id INTEGER PRIMARY KEY,
   code TEXT NOT NULL UNIQUE,
-  kind TEXT NOT NULL, -- fishing | rental
+  kind TEXT NOT NULL, -- fishing | rental | massage
   status TEXT NOT NULL, -- pending_payment | confirmed | cancelled | expired | completed
   customer_phone TEXT NOT NULL,
   customer_name TEXT,

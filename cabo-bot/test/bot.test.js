@@ -125,6 +125,51 @@ test('rental booking with stock limits and full online payment', async () => {
   assert.match(lastTo(other).text, /everything is booked/);
 });
 
+test('massage booking: deposit online, cash to therapist, slot capacity', async () => {
+  const date = addDays(caboToday(), 2);
+  await say('hi');
+  await say('Massage', TOURIST, 'massage');
+  assert.match(lastTo(TOURIST).text, /What date would you like your massage/);
+  await say(date);
+  await say('2', TOURIST, 'p2');
+  await say('90 minutes', TOURIST, 'm90');
+  assert.deepEqual(lastTo(TOURIST).list.rows.map((r) => r.id), ['time09:00', 'time12:00', 'time15:00', 'time18:00', 'otherdate']);
+  await say('3:00 PM', TOURIST, 'time15:00');
+  await say('Villa Paraiso, Pedregal 123, Cabo San Lucas');
+  await say('Jane Doe', TOURIST, 'usename');
+  assert.match(lastTo(TOURIST).text, /Total \*\$340\*/); // 2 × $170
+  assert.match(lastTo(TOURIST).text, /Pay now online: \*\$68\*/);
+  assert.match(lastTo(TOURIST).text, /therapist in cash: \*\$272\*/);
+  await say('pay', TOURIST, 'pay');
+  const code = payCode(TOURIST);
+  assert.equal(await handlePayment(code), 'confirmed');
+  assert.match(lastTo(TOURIST).text, /You're booked/);
+  assert.match(allTo(OWNER), /MASAJE RESERVADO/);
+  assert.match(allTo(OWNER), /Efectivo al terapeuta \$272 USD/);
+
+  // Both therapists are taken at 3 PM, so another guest can't pick that time
+  const other = '15558888888';
+  for (const t of ['hi', 'massage', date]) await say(t, other);
+  await say('1', other, 'p1');
+  await say('60', other);
+  assert.deepEqual(lastTo(other).list.rows.map((r) => r.id), ['time09:00', 'time12:00', 'time18:00', 'otherdate']);
+});
+
+test('massage in Spanish and day-before reminder', async () => {
+  const MX = '5213310000000';
+  await say('Hola, quiero un masaje', MX);
+  await say('masaje', MX);
+  assert.match(lastTo(MX).text, /Qué día te gustaría tu masaje/);
+
+  const date = addDays(caboToday(), 1);
+  getDb().prepare(`INSERT INTO bookings (code, kind, status, customer_phone, customer_name, date, start_time, duration_min, guests,
+      delivery_address, total, paid_online, balance_cash, confirmed_at)
+    VALUES ('CBMASS', 'massage', 'confirmed', ?, 'Jane', ?, '12:00', 60, 1, 'Villa Sol', 120, 24, 96, datetime('now', '-2 days'))`).run(TOURIST, date);
+  await tick(new Date(caboInstant(caboToday(), '17:05')));
+  assert.match(lastTo(TOURIST).text, /massage is tomorrow/);
+  assert.match(lastTo(OWNER).text, /Masaje mañana/);
+});
+
 test('human handoff and owner reply', async () => {
   await say('hi');
   await say('human');
@@ -252,7 +297,7 @@ test('Spanish-speaking tourist books a trip in Spanish, captain 2 gets it in Eng
   const [y, m, d] = date.split('-');
   await say('Hola! Quiero reservar (ref: taxi-7)', MX);
   assert.match(lastTo(MX).text, /Te damos la bienvenida/);
-  assert.equal(lastTo(MX).buttons[0].title, '🎣 Viaje de pesca');
+  assert.equal(lastTo(MX).list.rows[0].title, '🎣 Viaje de pesca');
   await say('pesca', MX);
   assert.match(lastTo(MX).text, /Qué día/);
   await say(`${+d}/${+m}`, MX); // day first in Spanish

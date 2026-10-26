@@ -1,7 +1,7 @@
 import { getDb } from './db.js';
 import { config } from './config.js';
 import { caboToday } from './dates.js';
-import { fmtDate } from './i18n.js';
+import { fmtDate, fmtTime } from './i18n.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
@@ -60,7 +60,7 @@ export function adminPage(lang = config.ownerLang) {
   const month = today.slice(0, 7);
   const stats = db.prepare(`
     SELECT
-      COALESCE(SUM(CASE WHEN kind='fishing' THEN paid_online END), 0) AS commission,
+      COALESCE(SUM(CASE WHEN kind IN ('fishing','massage') THEN paid_online END), 0) AS commission,
       COALESCE(SUM(CASE WHEN kind='rental' THEN paid_online END), 0) AS rentals,
       COUNT(*) AS bookings
     FROM bookings WHERE status IN ('confirmed','completed') AND substr(confirmed_at, 1, 7) = ?
@@ -99,8 +99,10 @@ ${human.map((h) => `<tr><td>+${esc(h.phone)}</td><td>${esc(h.state)}</td><td>${e
 <h2>${x.upcoming}</h2><div class="scroll"><table>
 <tr><th>${x.date}</th><th>${x.code}</th><th>${x.type}</th><th>${x.details}</th><th>${x.client}</th><th>${x.online}</th><th>${x.cash}</th><th>${x.status}</th><th>${x.source}</th><th>${x.lang}</th></tr>
 ${upcoming.map((b) => `<tr><td>${esc(fmtDate(b.date, L))}${b.end_date ? ' → ' + esc(fmtDate(b.end_date, L)) : ''}</td><td>${esc(b.code)}</td>
-<td>${b.kind === 'fishing' ? '🎣' : '🏖️'}</td>
-<td>${b.kind === 'fishing' ? `${esc(b.boat_name)} · Cap. ${esc(b.captain_name)} · ${b.hours}h · ${b.guests} ${x.guests}` : esc(b.delivery_address)}</td>
+<td>${({ fishing: '🎣', massage: '💆' })[b.kind] || '🏖️'}</td>
+<td>${b.kind === 'fishing' ? `${esc(b.boat_name)} · Cap. ${esc(b.captain_name)} · ${b.hours}h · ${b.guests} ${x.guests}`
+    : b.kind === 'massage' ? `${esc(fmtTime(b.start_time, L))} · ${b.duration_min} min · ${b.guests} ${x.guests} · ${esc(b.delivery_address)}`
+      : esc(b.delivery_address)}</td>
 <td>${esc(b.customer_name)}<br><span class="muted">+${esc(b.customer_phone)}</span></td><td>$${b.paid_online}</td><td>$${b.balance_cash}</td>
 <td><span class="tag">${esc(x.statuses[b.status] || b.status)}</span></td><td>${esc(b.source || 'direct')}</td><td>${esc(b.lang.toUpperCase())}</td></tr>`).join('') || `<tr><td colspan="10" class="muted">${x.none}</td></tr>`}
 </table></div>

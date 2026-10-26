@@ -16,6 +16,10 @@ export const config = {
   holdMinutes: Number(env.HOLD_MINUTES || 30),
   captainReplyMinutes: Number(env.CAPTAIN_REPLY_MINUTES || 15),
   rentalDeliveryFee: Number(env.RENTAL_DELIVERY_FEE || 25),
+  // In-villa massages: therapists available per time slot, and price per person (USD)
+  massageTherapists: Number(env.MASSAGE_THERAPISTS || 2),
+  massagePrice60: Number(env.MASSAGE_PRICE_60 || 120),
+  massagePrice90: Number(env.MASSAGE_PRICE_90 || 170),
 
   whatsapp: {
     token: env.WHATSAPP_TOKEN || '',

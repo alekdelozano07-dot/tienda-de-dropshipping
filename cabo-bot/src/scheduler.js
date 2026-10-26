@@ -48,18 +48,22 @@ export async function tick(now = new Date()) {
     }
   }
 
-  // 4. Wrap-up: fishing at 6 PM on trip day, rentals at 9 AM on the last day. Then mark completed.
+  // 4. Wrap-up: fishing at 6 PM on trip day, massages at 9 PM (the last slot is 6 PM), rentals at 9 AM on the last day.
+  //    Then mark completed.
   const today = caboToday(now);
   const due = [];
   if (now >= caboInstant(today, '18:00')) {
     due.push(...db.prepare(`SELECT code FROM bookings WHERE status = 'confirmed' AND reminder_same_day = 0 AND kind = 'fishing' AND date <= ?`).all(today));
+  }
+  if (now >= caboInstant(today, '21:00')) {
+    due.push(...db.prepare(`SELECT code FROM bookings WHERE status = 'confirmed' AND reminder_same_day = 0 AND kind = 'massage' AND date <= ?`).all(today));
   }
   if (now >= caboInstant(today, '09:00')) {
     due.push(...db.prepare(`SELECT code FROM bookings WHERE status = 'confirmed' AND reminder_same_day = 0 AND kind = 'rental' AND end_date <= ?`).all(today));
   }
   for (const { code } of due) {
     const b = getBooking(code);
-    const isToday = (b.kind === 'fishing' ? b.date : b.end_date) === today;
+    const isToday = (b.kind === 'rental' ? b.end_date : b.date) === today;
     if (isToday) await sendReminder(b, 'wrap_up'); // don't send stale messages after downtime
     db.prepare(`UPDATE bookings SET reminder_same_day = 1, status = 'completed' WHERE id = ?`).run(b.id);
   }

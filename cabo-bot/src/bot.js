@@ -4,8 +4,8 @@ import { sendMessage } from './whatsapp.js';
 import { createCheckout } from './payments.js';
 import { addDays, caboInstant, caboToday, captainDeadline, parseDate, TRIP_START } from './dates.js';
 import {
-  availableBoats, createFishingRequest, createRentalHold, getBooking, itemAvailability,
-  rentalItems, rentalQuote, setPaymentRef, setStatus, upcomingForPhone,
+  availableBoats, createFishingRequest, createMassageHold, createRentalHold, depositFor, freeTherapists, getBooking,
+  itemAvailability, MASSAGE_TIMES, massagePrice, rentalItems, rentalQuote, setPaymentRef, setStatus, upcomingForPhone,
 } from './bookings.js';
 import { askCaptain, bookingSummary, tellCaptain } from './notify.js';
 import { handleCaptainMessage, handleOwnerMessage, isCaptain } from './staff.js';
@@ -155,6 +155,12 @@ async function repeatStep(c) {
     case 'rent_qty': return showItems(c);
     case 'rent_address': return say(c, T(c, 'askAddress'));
     case 'rent_confirm': return showRentalSummary(c);
+    case 'massage_date': return say(c, T(c, 'massageStart'));
+    case 'massage_people': return askMassagePeople(c);
+    case 'massage_length': return askMassageLength(c);
+    case 'massage_time': return showMassageTimes(c);
+    case 'massage_address': return say(c, T(c, 'massageAddress'));
+    case 'massage_confirm': return showMassageSummary(c);
     default: return STATES[c.state](c, { text: '' });
   }
 }
@@ -164,6 +170,7 @@ async function repeatStep(c) {
 const menuOptions = (c) => [
   { id: 'fish', title: T(c, 'menuFish') },
   { id: 'rent', title: T(c, 'menuRent') },
+  { id: 'massage', title: T(c, 'menuMassage') },
   { id: 'human', title: T(c, 'talkToPerson') },
 ];
 
@@ -197,15 +204,18 @@ async function escalate(c, input, reason) {
 
 const FISH_WORDS = /fish|boat|charter|marlin|tuna|dorado|pesca|pescar|barco|lancha|atun/;
 const RENT_WORDS = /rent|beach|umbrella|chair|cooler|stroller|crib|baby|car seat|renta|playa|sombrilla|silla|hielera|carriola|cuna|bebe/;
+const MASSAGE_WORDS = /massage|masaje|spa/;
 
 const STATES = {
   new: welcome,
 
   async menu(c, input) {
     const text = norm(input.text);
-    const choice = pick(c, input) || (FISH_WORDS.test(text) ? 'fish' : RENT_WORDS.test(text) ? 'rent' : null);
+    const choice = pick(c, input)
+      || (FISH_WORDS.test(text) ? 'fish' : MASSAGE_WORDS.test(text) ? 'massage' : RENT_WORDS.test(text) ? 'rent' : null);
     if (choice === 'fish') return startFishing(c);
     if (choice === 'rent') return startRental(c);
+    if (choice === 'massage') return startMassage(c);
     return welcome(c, input);
   },
 
@@ -254,7 +264,8 @@ const STATES = {
     if (!name || name.length < 2 || name.length > 60) return say(c, T(c, 'nameInvalid'));
     c.data.name = name;
     c.state = c.data.after_name;
-    return c.state === 'fish_confirm' ? showFishingSummary(c) : showRentalSummary(c);
+    const summary = { fish_confirm: showFishingSummary, rent_confirm: showRentalSummary, massage_confirm: showMassageSummary };
+    return summary[c.state](c);
   },
 
   async fish_confirm(c, input) {
@@ -378,6 +389,61 @@ const STATES = {
       return showItems(c);
     }
     return sendPaymentLink(c, b, t(b.lang, 'stripeRental', b.code));
+  },
+
+  // ----- Massages -----
+
+  async massage_date(c, input) {
+    const date = readFutureDate(c, input.text);
+    if (date.error) return say(c, date.error);
+    c.data.date = date.value;
+    return askMassagePeople(c);
+  },
+
+  async massage_people(c, input) {
+    const id = pick(c, input);
+    const n = id ? Number(id.slice(1)) : parseInt(input.text, 10);
+    if (!(n >= 1 && n <= config.massageTherapists)) return say(c, T(c, 'massagePeopleInvalid', config.massageTherapists));
+    c.data.people = n;
+    return askMassageLength(c);
+  },
+
+  async massage_length(c, input) {
+    const id = pick(c, input) || ({ 60: 'm60', 90: 'm90' })[parseInt(input.text, 10)];
+    if (!id) return say(c, T(c, 'massageLengthInvalid'));
+    c.data.minutes = Number(id.slice(1));
+    return showMassageTimes(c);
+  },
+
+  async massage_time(c, input) {
+    const id = pick(c, input);
+    if (id === 'otherdate') { c.state = 'massage_date'; return say(c, T(c, 'otherDatePrompt')); }
+    if (!id?.startsWith('time')) return say(c, T(c, 'pickTime'));
+    c.data.time = id.slice(4);
+    c.state = 'massage_address';
+    await say(c, T(c, 'massageAddress'));
+  },
+
+  async massage_address(c, input) {
+    const addr = input.text.trim();
+    if (addr.length < 6) return say(c, T(c, 'addressInvalid'));
+    c.data.address = addr.slice(0, 300);
+    return askName(c, 'massage_confirm');
+  },
+
+  async massage_confirm(c, input) {
+    const id = pick(c, input);
+    if (id === 'change') return startMassage(c);
+    if (id !== 'pay') return say(c, T(c, 'confirmMassageHint'));
+    const b = createMassageHold({
+      phone: c.phone, name: c.data.name, source: c.source, lang: c.lang,
+      date: c.data.date, time: c.data.time, minutes: c.data.minutes, people: c.data.people, address: c.data.address,
+    });
+    if (!b) {
+      await say(c, T(c, 'massageJustTaken'));
+      return showMassageTimes(c);
+    }
+    return sendPaymentLink(c, b, t(b.lang, 'stripeMassage', b.code));
   },
 
   // ----- After the payment link -----
@@ -524,6 +590,62 @@ async function showRentalSummary(c) {
   ]);
 }
 
+async function startMassage(c) {
+  c.state = 'massage_date';
+  c.data = { name: c.data.name };
+  await say(c, T(c, 'massageStart'));
+}
+
+async function askMassagePeople(c) {
+  c.state = 'massage_people';
+  const opts = [1, 2, 3].filter((n) => n <= config.massageTherapists).map((n) => ({ id: `p${n}`, title: String(n) }));
+  await ask(c, { text: T(c, 'massagePeople', D(c, c.data.date)) }, opts);
+}
+
+async function askMassageLength(c) {
+  c.state = 'massage_length';
+  await ask(c, { text: T(c, 'massageLength', usd(massagePrice(60)), usd(massagePrice(90))) }, [
+    { id: 'm60', title: T(c, 'm60') },
+    { id: 'm90', title: T(c, 'm90') },
+  ]);
+}
+
+async function showMassageTimes(c) {
+  const { date, people } = c.data;
+  c.state = 'massage_time';
+  const rows = MASSAGE_TIMES.filter((time) => freeTherapists(date, time) >= people)
+    .map((time) => ({ id: `time${time}`, title: fmtTime(time, c.lang) }));
+  if (!rows.length) {
+    return ask(c, { text: T(c, 'noMassageTimes', D(c, date)) }, [
+      { id: 'otherdate', title: T(c, 'anotherDate') },
+      { id: 'human', title: T(c, 'talkToPerson') },
+    ]);
+  }
+  rows.push({ id: 'otherdate', title: T(c, 'anotherDate') });
+  await ask(c, { text: T(c, 'massageTimes', D(c, date)), listButton: T(c, 'chooseTime'), listTitle: T(c, 'availableTimes') }, rows);
+}
+
+async function showMassageSummary(c) {
+  const { date, time, minutes, people } = c.data;
+  if (freeTherapists(date, time) < people) {
+    await say(c, T(c, 'massageJustTaken'));
+    return showMassageTimes(c);
+  }
+  const total = massagePrice(minutes) * people;
+  const deposit = depositFor(total);
+  c.state = 'massage_confirm';
+  await ask(c, {
+    text: T(c, 'massageSummary', {
+      date: D(c, date), time: fmtTime(time, c.lang), minutes, people, address: c.data.address, name: c.data.name,
+      total: usd(total), deposit: usd(deposit), cash: usd(total - deposit),
+    }),
+  }, [
+    { id: 'pay', title: T(c, 'confirmPay') },
+    { id: 'change', title: T(c, 'change') },
+    { id: 'human', title: T(c, 'talkToPerson') },
+  ]);
+}
+
 function restoreTrip(b) {
   return { date: b.date, hours: b.hours, guests: b.guests };
 }
@@ -555,6 +677,8 @@ async function sendPaymentLink(c, b, description, intro = '') {
   setPaymentRef(b.code, ref);
   c.state = 'awaiting_payment';
   c.data = { name: c.data.name, code: b.code, payUrl: url };
-  const what = b.kind === 'fishing' ? T(c, 'payFishing', usd(b.paid_online), usd(b.balance_cash)) : T(c, 'payRental', usd(b.paid_online));
+  const what = b.kind === 'fishing' ? T(c, 'payFishing', usd(b.paid_online), usd(b.balance_cash))
+    : b.kind === 'massage' ? T(c, 'payMassage', usd(b.paid_online), usd(b.balance_cash))
+      : T(c, 'payRental', usd(b.paid_online));
   await say(c, intro + T(c, 'payLink', what, url, config.holdMinutes));
 }

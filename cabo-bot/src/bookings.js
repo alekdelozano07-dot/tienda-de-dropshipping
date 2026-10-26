@@ -120,6 +120,44 @@ export function createRentalHold({ phone, name, source, lang = 'en', start, end,
   }
 }
 
+// ---------- Massages ----------
+
+export const MASSAGE_TIMES = ['09:00', '12:00', '15:00', '18:00'];
+
+export function massagePrice(minutes) {
+  return minutes === 90 ? config.massagePrice90 : config.massagePrice60;
+}
+
+// Therapists still free at a time slot. Each person getting a massage needs one.
+export function freeTherapists(date, time, { excludeBookingId = 0 } = {}) {
+  const { used } = getDb().prepare(`
+    SELECT COALESCE(SUM(guests), 0) AS used FROM bookings
+    WHERE kind = 'massage' AND date = ? AND start_time = ? AND id != ? AND ${HOLDING}
+  `).get(date, time, excludeBookingId);
+  return Math.max(0, config.massageTherapists - used);
+}
+
+export function createMassageHold({ phone, name, source, lang = 'en', date, time, minutes, people, address }) {
+  const db = getDb();
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    if (freeTherapists(date, time) < people) { db.exec('ROLLBACK'); return null; }
+    const total = massagePrice(minutes) * people;
+    const deposit = depositFor(total);
+    const code = newCode();
+    db.prepare(`
+      INSERT INTO bookings (code, kind, status, customer_phone, customer_name, source, lang, date, start_time, duration_min, guests,
+                            delivery_address, total, paid_online, balance_cash, hold_expires_at)
+      VALUES (?, 'massage', 'pending_payment', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', ?))
+    `).run(code, phone, name, source, lang, date, time, minutes, people, address, total, deposit, total - deposit, `+${config.holdMinutes} minutes`);
+    db.exec('COMMIT');
+    return getBooking(code);
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+}
+
 // ---------- Common ----------
 
 export function getBooking(code) {
@@ -156,9 +194,9 @@ export function markPaid(code) {
     let stillFree = true;
     if (b.status !== 'pending_payment' || new Date(b.hold_expires_at.replace(' ', 'T') + 'Z') <= new Date()) {
       // Hold lapsed (or booking cancelled): only confirm if the inventory is still free.
-      stillFree = b.kind === 'fishing'
-        ? availableBoats(b.date, b.hours, b.guests, { excludeBookingId: b.id }).some((x) => x.id === b.boat_id)
-        : b.items.every((i) => itemAvailability(i.item_id, b.date, b.end_date, { excludeBookingId: b.id }) >= i.qty);
+      if (b.kind === 'fishing') stillFree = availableBoats(b.date, b.hours, b.guests, { excludeBookingId: b.id }).some((x) => x.id === b.boat_id);
+      else if (b.kind === 'massage') stillFree = freeTherapists(b.date, b.start_time, { excludeBookingId: b.id }) >= b.guests;
+      else stillFree = b.items.every((i) => itemAvailability(i.item_id, b.date, b.end_date, { excludeBookingId: b.id }) >= i.qty);
     }
     if (!stillFree) {
       db.prepare(`UPDATE bookings SET status = 'cancelled' WHERE id = ?`).run(b.id);

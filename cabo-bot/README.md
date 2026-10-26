@@ -123,8 +123,11 @@ Netlify/Vercel no sirven para esto (no mantienen un servidor encendido ni un dis
 | `HOLD_MINUTES` | 30 | Minutos que se aparta el barco/equipo esperando el pago |
 | `CAPTAIN_REPLY_MINUTES` | 15 | Minutos que tiene el capitán para contestar SÍ/NO. Entre 9 PM y 7 AM el plazo empieza a contar a las 7 AM |
 | `RENTAL_DELIVERY_FEE` | 25 | Cargo fijo de entrega y recogida (USD) |
+| `MASSAGE_THERAPISTS` | 2 | Terapeutas disponibles por horario de masaje (cada persona necesita uno) |
+| `MASSAGE_PRICE_60` | 120 | Precio por persona del masaje de 60 min (USD) |
+| `MASSAGE_PRICE_90` | 170 | Precio por persona del masaje de 90 min (USD) |
 
-Otras reglas fijas del código: reservas desde mañana hasta 180 días; el mismo día se pasa a una persona. Si no da tiempo de esperar al capitán (menos de 3 h entre el plazo de respuesta y la salida, p. ej. alguien reserva a las 11 PM para mañana a las 7 AM), el chat se te pasa a ti. Un barco hace un viaje por día. Salidas: 4 h y 6 h a las 7:00 AM, 8 h a las 6:00 AM (`src/dates.js`).
+Otras reglas fijas del código: reservas desde mañana hasta 180 días; el mismo día se pasa a una persona. Si no da tiempo de esperar al capitán (menos de 3 h entre el plazo de respuesta y la salida, p. ej. alguien reserva a las 11 PM para mañana a las 7 AM), el chat se te pasa a ti. Un barco hace un viaje por día. Salidas: 4 h y 6 h a las 7:00 AM, 8 h a las 6:00 AM (`src/dates.js`). Masajes: horarios 9 AM, 12 PM, 3 PM y 6 PM (`MASSAGE_TIMES` en `src/bookings.js`); se cobra el `DEPOSIT_PERCENT` en línea y el resto en efectivo al terapeuta.
 
 Si alguien paga después de que venció su apartado y el barco ya lo tomó otro, el sistema no lo confirma: le avisa al cliente y a ti te dice que hagas el reembolso.
 
