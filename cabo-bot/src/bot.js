@@ -4,8 +4,8 @@ import { sendMessage } from './whatsapp.js';
 import { createCheckout } from './payments.js';
 import { addDays, caboInstant, caboToday, captainDeadline, parseDate, TRIP_START } from './dates.js';
 import {
-  availableBoats, createFishingRequest, createMassageHold, createRentalHold, depositFor, freeTherapists, getBooking,
-  itemAvailability, MASSAGE_TIMES, massagePrice, rentalItems, rentalQuote, setPaymentRef, setStatus, upcomingForPhone,
+  availableBoats, createFishingRequest, createMassageHold, createRentalHold, freeTherapists, getBooking, itemAvailability,
+  MASSAGE_TIMES, massagePrice, massageSplit, rentalItems, rentalQuote, setPaymentRef, setStatus, upcomingForPhone,
 } from './bookings.js';
 import { askCaptain, bookingSummary, tellCaptain } from './notify.js';
 import { handleCaptainMessage, handleOwnerMessage, isCaptain } from './staff.js';
@@ -397,6 +397,11 @@ const STATES = {
     const date = readFutureDate(c, input.text);
     if (date.error) return say(c, date.error);
     c.data.date = date.value;
+    // With a single therapist there is nothing to ask: one person per slot.
+    if (config.massageTherapists === 1) {
+      c.data.people = 1;
+      return askMassageLength(c);
+    }
     return askMassagePeople(c);
   },
 
@@ -631,13 +636,12 @@ async function showMassageSummary(c) {
     await say(c, T(c, 'massageJustTaken'));
     return showMassageTimes(c);
   }
-  const total = massagePrice(minutes) * people;
-  const deposit = depositFor(total);
+  const { total, deposit, cash } = massageSplit(minutes, people);
   c.state = 'massage_confirm';
   await ask(c, {
     text: T(c, 'massageSummary', {
       date: D(c, date), time: fmtTime(time, c.lang), minutes, people, address: c.data.address, name: c.data.name,
-      total: usd(total), deposit: usd(deposit), cash: usd(total - deposit),
+      total: usd(total), deposit: usd(deposit), cash: usd(cash),
     }),
   }, [
     { id: 'pay', title: T(c, 'confirmPay') },

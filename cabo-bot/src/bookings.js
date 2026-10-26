@@ -128,6 +128,13 @@ export function massagePrice(minutes) {
   return minutes === 90 ? config.massagePrice90 : config.massagePrice60;
 }
 
+// The client pays the therapist a fixed cash amount per person; the rest of the price is charged online (your margin).
+export function massageSplit(minutes, people) {
+  const total = massagePrice(minutes) * people;
+  const cash = Math.min(total, (minutes === 90 ? config.massageCash90 : config.massageCash60) * people);
+  return { total, deposit: total - cash, cash };
+}
+
 // Therapists still free at a time slot. Each person getting a massage needs one.
 export function freeTherapists(date, time, { excludeBookingId = 0 } = {}) {
   const { used } = getDb().prepare(`
@@ -142,14 +149,13 @@ export function createMassageHold({ phone, name, source, lang = 'en', date, time
   db.exec('BEGIN IMMEDIATE');
   try {
     if (freeTherapists(date, time) < people) { db.exec('ROLLBACK'); return null; }
-    const total = massagePrice(minutes) * people;
-    const deposit = depositFor(total);
+    const { total, deposit, cash } = massageSplit(minutes, people);
     const code = newCode();
     db.prepare(`
       INSERT INTO bookings (code, kind, status, customer_phone, customer_name, source, lang, date, start_time, duration_min, guests,
                             delivery_address, total, paid_online, balance_cash, hold_expires_at)
       VALUES (?, 'massage', 'pending_payment', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', ?))
-    `).run(code, phone, name, source, lang, date, time, minutes, people, address, total, deposit, total - deposit, `+${config.holdMinutes} minutes`);
+    `).run(code, phone, name, source, lang, date, time, minutes, people, address, total, deposit, cash, `+${config.holdMinutes} minutes`);
     db.exec('COMMIT');
     return getBooking(code);
   } catch (e) {

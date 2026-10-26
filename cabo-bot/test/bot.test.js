@@ -125,33 +125,32 @@ test('rental booking with stock limits and full online payment', async () => {
   assert.match(lastTo(other).text, /everything is booked/);
 });
 
-test('massage booking: deposit online, cash to therapist, slot capacity', async () => {
+test('massage booking: fixed cash to therapist, margin online, slot capacity', async () => {
   const date = addDays(caboToday(), 2);
   await say('hi');
   await say('Massage', TOURIST, 'massage');
   assert.match(lastTo(TOURIST).text, /What date would you like your massage/);
-  await say(date);
-  await say('2', TOURIST, 'p2');
+  await say(date); // one therapist by default: no "how many people" question
+  assert.match(lastTo(TOURIST).text, /How long should each massage be/);
   await say('90 minutes', TOURIST, 'm90');
   assert.deepEqual(lastTo(TOURIST).list.rows.map((r) => r.id), ['time09:00', 'time12:00', 'time15:00', 'time18:00', 'otherdate']);
   await say('3:00 PM', TOURIST, 'time15:00');
   await say('Villa Paraiso, Pedregal 123, Cabo San Lucas');
   await say('Jane Doe', TOURIST, 'usename');
-  assert.match(lastTo(TOURIST).text, /Total \*\$340\*/); // 2 × $170
-  assert.match(lastTo(TOURIST).text, /Pay now online: \*\$68\*/);
-  assert.match(lastTo(TOURIST).text, /therapist in cash: \*\$272\*/);
+  assert.match(lastTo(TOURIST).text, /Total \*\$170\*/);
+  assert.match(lastTo(TOURIST).text, /Pay now online: \*\$75\*/); // 170 - 95 cash
+  assert.match(lastTo(TOURIST).text, /therapist in cash: \*\$95\*/);
   await say('pay', TOURIST, 'pay');
   const code = payCode(TOURIST);
   assert.equal(await handlePayment(code), 'confirmed');
   assert.match(lastTo(TOURIST).text, /You're booked/);
   assert.match(allTo(OWNER), /MASAJE RESERVADO/);
-  assert.match(allTo(OWNER), /Efectivo al terapeuta \$272 USD/);
+  assert.match(allTo(OWNER), /Efectivo al terapeuta \$95 USD/);
 
-  // Both therapists are taken at 3 PM, so another guest can't pick that time
+  // The therapist is taken at 3 PM, so another guest can't pick that time
   const other = '15558888888';
-  for (const t of ['hi', 'massage', date]) await say(t, other);
-  await say('1', other, 'p1');
-  await say('60', other);
+  for (const t of ['hi', 'massage', date, '60']) await say(t, other);
+  assert.match(lastTo(other).text, /\*\$67\*|What time/);
   assert.deepEqual(lastTo(other).list.rows.map((r) => r.id), ['time09:00', 'time12:00', 'time18:00', 'otherdate']);
 });
 

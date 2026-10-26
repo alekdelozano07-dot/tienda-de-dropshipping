@@ -16,10 +16,13 @@ export const config = {
   holdMinutes: Number(env.HOLD_MINUTES || 30),
   captainReplyMinutes: Number(env.CAPTAIN_REPLY_MINUTES || 15),
   rentalDeliveryFee: Number(env.RENTAL_DELIVERY_FEE || 25),
-  // In-villa massages: therapists available per time slot, and price per person (USD)
-  massageTherapists: Number(env.MASSAGE_THERAPISTS || 2),
+  // In-villa massages: therapists available per time slot, price per person (USD), and the part of that price
+  // the client pays the therapist in cash (USD per person). The rest is charged online and is your margin.
+  massageTherapists: Number(env.MASSAGE_THERAPISTS || 1),
   massagePrice60: Number(env.MASSAGE_PRICE_60 || 120),
   massagePrice90: Number(env.MASSAGE_PRICE_90 || 170),
+  massageCash60: Number(env.MASSAGE_CASH_60 || 67),
+  massageCash90: Number(env.MASSAGE_CASH_90 || 95),
 
   whatsapp: {
     token: env.WHATSAPP_TOKEN || '',
