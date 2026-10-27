@@ -9,6 +9,8 @@ import { tick } from '../src/scheduler.js';
 import { addDays, caboInstant, caboToday, parseDate } from '../src/dates.js';
 import { availableBoats } from '../src/bookings.js';
 import { setInterpreter } from '../src/ai.js';
+import { faqAnswer } from '../src/faq.js';
+import { fixTypos, readHours, readMinutes, readNumber, readPeople } from '../src/words.js';
 
 const OWNER = '5210000000000';
 const CAPTAIN = '5216241000001';
@@ -338,6 +340,80 @@ test('detects the language of the first message', async () => {
   assert.equal(detectLang('Hi! I want to go fishing'), 'en');
   assert.equal(detectLang('👍', '5216241234567'), 'es'); // ambiguous: Mexican number
   assert.equal(detectLang('👍', '15551234567'), 'en');
+});
+
+test('reads numbers, typos and phrases without AI', () => {
+  assert.equal(readNumber('we are 4'), 4);
+  assert.equal(readNumber('the four of us'), 4);
+  assert.equal(readNumber('somos cinco'), 5);
+  assert.equal(readNumber('just me'), 1);
+  assert.equal(readNumber('blah'), null);
+  assert.equal(readPeople('2 adults and 2 kids'), 4);
+  assert.equal(readPeople('3 adultos y 2 niños'), 5);
+  assert.equal(readHours('full day'), 8);
+  assert.equal(readHours('medio día'), 4);
+  assert.equal(readHours('6 hours'), 6);
+  assert.equal(readMinutes('an hour and a half'), 90);
+  assert.equal(readMinutes('una hora'), 60);
+  assert.equal(fixTypos('tomorow fising'), 'tomorrow fishing');
+  assert.equal(fixTypos('masage'), 'massage');
+});
+
+test('FAQ: picks the right answer in English and Spanish', () => {
+  assert.match(faqAnswer('Is the tip included?', 'en'), /Tips are not included/);
+  assert.match(faqAnswer('is lunch included?', 'en'), /depends on the boat/);
+  assert.match(faqAnswer('¿Qué pasa si llueve?', 'es'), /Capitanía de Puerto/);
+  assert.match(faqAnswer('can I cancel and get my money back?', 'en'), /48 hours/);
+  assert.match(faqAnswer('how much is it?', 'en'), /start at \$350/);
+  assert.equal(faqAnswer('hello there', 'en'), null);
+});
+
+test('without AI: answers a question mid-flow, then asks the same step again', async () => {
+  await say('hi');
+  await say('Fishing trip', TOURIST, 'fish');
+  await say('can my kids come?');
+  const [answer, again] = outbox.filter((m) => m.to === TOURIST).slice(-2).map((m) => m.message.text);
+  assert.match(answer, /kids are welcome/);
+  assert.match(again, /What date would you like to go fishing/);
+});
+
+test('without AI: questions in the first message or the menu get answered', async () => {
+  await say('do you take credit cards?');
+  const msgs = outbox.filter((m) => m.to === TOURIST).map((m) => m.message.text);
+  assert.match(msgs[0], /pay securely by card/);
+  assert.match(msgs[1], /Welcome/);
+
+  await say('how much does it cost?');
+  const [price, menu] = outbox.filter((m) => m.to === TOURIST).slice(-2).map((m) => m.message.text);
+  assert.match(price, /start at \$350/);
+  assert.match(menu, /What would you like to do/);
+
+  // A question that also names an activity: answer it, then start that activity
+  await say('I want to rent a kayak, do I need experience?');
+  const [tip, rent] = outbox.filter((m) => m.to === TOURIST).slice(-2).map((m) => m.message.text);
+  assert.match(tip, /No experience needed/);
+  assert.match(rent, /paddleboards and kayaks/);
+});
+
+test('without AI: typos and sentences still get through a fishing booking', async () => {
+  await say('hi');
+  await say('i want to go fising');
+  assert.match(lastTo(TOURIST).text, /What date would you like to go fishing/);
+  await say('tomorow');
+  assert.match(lastTo(TOURIST).text, /How many people/);
+  await say('2 adults and 2 kids');
+  assert.match(lastTo(TOURIST).text, /How long would you like to fish/);
+  await say('the full day please');
+  assert.match(lastTo(TOURIST).text, /boats available/);
+  assert.match(lastTo(TOURIST).text, /La Reina/);
+});
+
+test('without AI: massage length in words', async () => {
+  const MX = '5213310000000';
+  await say('quiero un masaje', MX);
+  await say(addDays(caboToday(), 2), MX);
+  await say('hora y media', MX);
+  assert.match(lastTo(MX).text, /A qué hora te queda mejor/);
 });
 
 test('a QR scan always gets the welcome; a first message naming an activity goes straight to it', async () => {

@@ -11,6 +11,8 @@ import { askCaptain, bookingSummary, tellCaptain } from './notify.js';
 import { handleCaptainMessage, handleOwnerMessage, isCaptain } from './staff.js';
 import { boatDescription, detectLang, fmtDate, fmtTime, guessLang, itemName, langSwitch, t } from './i18n.js';
 import { aiEnabled, interpret } from './ai.js';
+import { faqAnswer } from './faq.js';
+import { fixTypos, readHours, readMinutes, readNumber, readPeople } from './words.js';
 
 const usd = (n) => `$${n.toLocaleString('en-US')}`;
 const MAX_DAYS_AHEAD = 180;
@@ -242,9 +244,19 @@ function aiContext(c, input) {
   };
 }
 
-// Returns true when the AI understood the message and the bot already replied.
+// Returns true when the message was understood and the bot already replied: first by the AI (when it is on),
+// then by the frequently asked questions in faq.js.
 async function understand(c, input) {
-  if (input.ai || input.replyId || !input.text.trim() || !aiEnabled()) return false;
+  if (input.ai || input.replyId || !input.text.trim()) return false;
+  if (aiEnabled() && await understandWithAI(c, input)) return true;
+  const answer = faqAnswer(input.text, c.lang);
+  if (!answer) return false;
+  await say(c, answer);
+  await repeatStep(c);
+  return true;
+}
+
+async function understandWithAI(c, input) {
   const r = await interpret(aiContext(c, input));
   if (!r) return false;
   switch (r.action) {
@@ -347,12 +359,23 @@ const FISH_WORDS = /fish|boat|charter|marlin|tuna|dorado|pesca|pescar|barco|lanc
 const RENT_WORDS = /rent|paddle|\bsup\b|kayak|canoe|renta|tabla|remo/;
 const MASSAGE_WORDS = /massage|masaje|spa/;
 
+// Which activity a message names, typos included ("fising", "masage", "kayk"). Null if none.
+function activityIn(text) {
+  const t = fixTypos(text);
+  return FISH_WORDS.test(t) ? 'fish' : MASSAGE_WORDS.test(t) ? 'massage' : RENT_WORDS.test(t) ? 'rent' : null;
+}
+
 const STATES = {
   // A first message that already names an activity skips the welcome and goes straight to it.
   // QR scans (prefilled "... (ref: villa-x)") always get the welcome with every option.
+  // A first message that asks a common question ("do you take cards?") gets the answer, then the welcome.
   async new(c, input) {
-    const text = norm(input.text.replace(/\(ref:[^)]*\)/i, ''));
-    if (/\(ref:/i.test(input.text) || ![FISH_WORDS, RENT_WORDS, MASSAGE_WORDS].some((re) => re.test(text))) return welcome(c, input);
+    const fromQr = /\(ref:/i.test(input.text);
+    if (fromQr || !activityIn(input.text)) {
+      const answer = !fromQr && faqAnswer(input.text, c.lang);
+      if (answer) await say(c, answer);
+      return welcome(c, input);
+    }
     c.data.name = c.data.name || input.profileName || null;
     return STATES.menu(c, input);
   },
@@ -360,10 +383,18 @@ const STATES = {
   async menu(c, input) {
     const text = norm(input.text);
     const picked = pick(c, input);
-    const choice = picked
-      || (FISH_WORDS.test(text) ? 'fish' : MASSAGE_WORDS.test(text) ? 'massage' : RENT_WORDS.test(text) ? 'rent' : null);
-    // A longer free-text message ("4 of us want to fish next Friday") goes to the AI to pick up the details.
-    if (!picked && (!choice || text.split(/\s+/).length > 3) && await understand(c, input)) return;
+    const choice = picked || activityIn(input.text);
+    if (!picked && aiEnabled()) {
+      // A longer free-text message ("4 of us want to fish next Friday") goes to the AI to pick up the details.
+      if ((!choice || text.split(/\s+/).length > 3) && await understand(c, input)) return;
+    } else if (!picked) {
+      // Without AI: answer a common question, then show the menu or go on with the activity they named.
+      const answer = faqAnswer(input.text, c.lang);
+      if (answer) {
+        await say(c, answer);
+        if (!choice) return showMenu(c);
+      }
+    }
     if (choice === 'fish') return startFishing(c);
     if (choice === 'rent') return startRental(c);
     if (choice === 'massage') return startMassage(c);
@@ -382,7 +413,7 @@ const STATES = {
   },
 
   async fish_guests(c, input) {
-    const n = parseInt(input.text, 10);
+    const n = readPeople(input.text);
     if (!(n >= 1 && n <= 30)) return notUnderstood(c, input, T(c, 'guestsInvalid'));
     c.data.guests = n;
     c.state = 'fish_hours';
@@ -394,7 +425,7 @@ const STATES = {
   },
 
   async fish_hours(c, input) {
-    const id = pick(c, input) || ({ 4: 'h4', 6: 'h6', 8: 'h8' })[parseInt(input.text, 10)];
+    const id = pick(c, input) || ({ 4: 'h4', 6: 'h6', 8: 'h8' })[readHours(input.text)];
     if (!id) return notUnderstood(c, input, T(c, 'hoursInvalid'));
     c.data.hours = Number(id.slice(1));
     return showBoats(c);
@@ -479,7 +510,7 @@ const STATES = {
   },
 
   async rent_days(c, input) {
-    const n = parseInt(input.text, 10);
+    const n = readNumber(input.text);
     if (!(n >= 1 && n <= 30)) return notUnderstood(c, input, T(c, 'daysInvalid'));
     c.data.end = addDays(c.data.start, n - 1);
     c.data.cart = [];
@@ -510,7 +541,7 @@ const STATES = {
 
   async rent_qty(c, input) {
     const id = pick(c, input);
-    const n = id ? Number(id.slice(1)) : parseInt(input.text, 10);
+    const n = id ? Number(id.slice(1)) : readNumber(input.text);
     if (!(n >= 1 && n <= c.data.pendingMax)) return notUnderstood(c, input, T(c, 'qtyInvalid', c.data.pendingMax));
     const line = c.data.cart.find((x) => x.itemId === c.data.pendingItem);
     if (line) line.qty += n;
@@ -559,14 +590,14 @@ const STATES = {
 
   async massage_people(c, input) {
     const id = pick(c, input);
-    const n = id ? Number(id.slice(1)) : parseInt(input.text, 10);
+    const n = id ? Number(id.slice(1)) : readPeople(input.text);
     if (!(n >= 1 && n <= config.massageTherapists)) return notUnderstood(c, input, T(c, 'massagePeopleInvalid', config.massageTherapists));
     c.data.people = n;
     return askMassageLength(c);
   },
 
   async massage_length(c, input) {
-    const id = pick(c, input) || ({ 60: 'm60', 90: 'm90' })[parseInt(input.text, 10)];
+    const id = pick(c, input) || ({ 60: 'm60', 90: 'm90' })[readMinutes(input.text)];
     if (!id) return notUnderstood(c, input, T(c, 'massageLengthInvalid'));
     c.data.minutes = Number(id.slice(1));
     return showMassageTimes(c);
@@ -632,7 +663,8 @@ const STATES = {
 // ---------- Flow steps ----------
 
 function readFutureDate(c, text) {
-  const date = parseDate(text, new Date(), c.lang);
+  // Typos ("tomorow", "fridey") are only fixed when the text doesn't read as a date as it is.
+  const date = parseDate(text, new Date(), c.lang) || parseDate(fixTypos(text), new Date(), c.lang);
   const today = caboToday();
   if (!date) return { error: T(c, 'dateNotUnderstood'), unparsed: true };
   if (date < today) return { error: T(c, 'datePassed') };

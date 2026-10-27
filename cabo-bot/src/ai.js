@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { readFileSync } from 'node:fs';
 import { config } from './config.js';
 import { getDb } from './db.js';
+import { faqText } from './faq.js';
 
 // The bot calls Claude only when its keyword rules don't understand a customer's message.
 // Claude never books, prices or confirms anything itself: it tells the bot what the customer meant
@@ -115,6 +116,10 @@ Leave unused fields empty: "" for text, 0 for numbers, "none" for flow.
 # Business information (written by the owner)
 
 ${knowledge()}
+
+# Frequently asked questions (answer with these)
+
+${faqText()}
 
 # Catalog (from the booking system)
 

@@ -105,7 +105,7 @@ De la base de datos del bot: un barco está libre si no tiene reservas del bot e
 
 ## 5. Activar la IA (opcional, recomendado)
 
-Sin IA el bot entiende botones, números, fechas y palabras clave. Con IA también entiende frases normales y con faltas de ortografía ("we're 4 and want to fish next Friday"), contesta preguntas y saca de una sola frase la fecha, las personas y las horas.
+Sin IA el bot entiende botones, números, fechas y palabras clave, faltas de ortografía comunes ("fising", "tomorow"), números dentro de frases ("we are 4", "2 adults and 2 kids") y contesta las preguntas frecuentes de `src/faq.js`. Con IA también entiende frases normales y con faltas de ortografía ("we're 4 and want to fish next Friday"), contesta preguntas y saca de una sola frase la fecha, las personas y las horas.
 
 1. Crea una cuenta en [platform.claude.com](https://platform.claude.com), agrega saldo y crea una API key.
 2. Ponla en tu `.env`: `ANTHROPIC_API_KEY=sk-ant-...`
@@ -155,6 +155,8 @@ Si alguien paga después de que venció su apartado y el barco ya lo tomó otro,
 ```
 src/server.js     servidor: webhooks de WhatsApp y Stripe, QR, admin, simulador
 src/bot.js        la conversación con el turista
+src/faq.js        respuestas a preguntas frecuentes en inglés y español (funcionan sin IA)
+src/words.js      entender faltas de ortografía, números en frases ("somos 4") y "día completo"
 src/ai.js         la IA (Claude) que entiende los mensajes que el bot no entiende
 knowledge.md      la información de tu negocio que usa la IA para contestar
 src/bookings.js   disponibilidad, apartados, pagos
