@@ -28,6 +28,11 @@ const MIGRATIONS = [
   'ALTER TABLE conversations ADD COLUMN lang TEXT',
   'ALTER TABLE bookings ADD COLUMN start_time TEXT',
   'ALTER TABLE bookings ADD COLUMN duration_min INTEGER',
+  // What a boat is best for (comma list of fishing | family | relaxed) and its label (popular | value | premium | family)
+  'ALTER TABLE boats ADD COLUMN best_for TEXT',
+  'ALTER TABLE boats ADD COLUMN tag TEXT',
+  // 1 once the bot followed up on an unpaid, expired booking
+  'ALTER TABLE bookings ADD COLUMN followup_sent INTEGER NOT NULL DEFAULT 0',
 ];
 
 function migrate(db) {

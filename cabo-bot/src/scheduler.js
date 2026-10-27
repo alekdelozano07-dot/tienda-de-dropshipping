@@ -1,8 +1,8 @@
 import { getDb } from './db.js';
 import { addDays, caboInstant, caboToday } from './dates.js';
-import { getBooking, sqlTime } from './bookings.js';
+import { availableBoats, freeTherapists, getBooking, itemAvailability, sqlTime } from './bookings.js';
 import { captainAnswered } from './bot.js';
-import { sendReminder, tellCaptain } from './notify.js';
+import { offerAgain, sendReminder, tellCaptain } from './notify.js';
 import { t } from './i18n.js';
 import { sendMessage } from './whatsapp.js';
 
@@ -31,6 +31,18 @@ export async function tick(now = new Date()) {
     db.prepare(`UPDATE conversations SET state = 'menu', data = json_object('name', json_extract(data, '$.name'))
                 WHERE phone = ? AND state = 'awaiting_payment' AND json_extract(data, '$.code') = ?`).run(b.customer_phone, b.code);
     await sendMessage(b.customer_phone, { text: t(b.lang, 'holdExpired', b.code) }, { lang: b.lang });
+  }
+
+  // 2b. Three hours after an unpaid booking expired, offer it once more (inside WhatsApp's 24-hour window),
+  //     but only if it is still free, still ahead, and the customer hasn't booked something else or moved on.
+  const HOUR = 60 * 60 * 1000;
+  const stale = db.prepare(`
+    SELECT code FROM bookings WHERE status = 'expired' AND followup_sent = 0 AND hold_expires_at <= ? AND hold_expires_at > ?
+  `).all(sqlTime(new Date(now.getTime() - 3 * HOUR)), sqlTime(new Date(now.getTime() - 20 * HOUR)));
+  for (const { code } of stale) {
+    db.prepare('UPDATE bookings SET followup_sent = 1 WHERE code = ?').run(code);
+    const b = getBooking(code);
+    if (worthFollowingUp(b, now)) await offerAgain(b);
   }
 
   // 3. Day-before reminders at 5 PM Cabo time.
@@ -67,6 +79,20 @@ export async function tick(now = new Date()) {
     if (isToday) await sendReminder(b, 'wrap_up'); // don't send stale messages after downtime
     db.prepare(`UPDATE bookings SET reminder_same_day = 1, status = 'completed' WHERE id = ?`).run(b.id);
   }
+}
+
+function worthFollowingUp(b, now) {
+  const db = getDb();
+  if (b.date <= caboToday(now)) return false;
+  const chat = db.prepare('SELECT state, human_mode FROM conversations WHERE phone = ?').get(b.customer_phone);
+  if (!chat || chat.state !== 'menu' || chat.human_mode) return false;
+  const bookedSince = db.prepare(`
+    SELECT 1 FROM bookings WHERE customer_phone = ? AND id > ? AND status IN ('awaiting_captain', 'pending_payment', 'confirmed', 'completed')
+  `).get(b.customer_phone, b.id);
+  if (bookedSince) return false;
+  if (b.kind === 'fishing') return availableBoats(b.date, b.hours, b.guests).some((x) => x.id === b.boat_id);
+  if (b.kind === 'massage') return freeTherapists(b.date, b.start_time) >= b.guests;
+  return b.items.every((i) => itemAvailability(i.item_id, b.date, b.end_date) >= i.qty);
 }
 
 export function startScheduler() {

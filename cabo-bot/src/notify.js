@@ -55,7 +55,11 @@ export async function askCaptain(b) {
 
 export async function onConfirmed(b) {
   if (b.kind === 'fishing') {
-    await toClient(b, t(b.lang, 'bookedFishing', bookingSummary(b), usd(b.balance_cash)));
+    // The confirmation also offers a massage for after the trip, one tap away.
+    await sendMessage(b.customer_phone, {
+      text: `${t(b.lang, 'bookedFishing', bookingSummary(b), usd(b.balance_cash))}\n\n${t(b.lang, 'crossSellMassage')}`,
+      buttons: [{ id: 'massage', title: t(b.lang, 'bookMassage') }],
+    }, { lang: b.lang });
     await toCaptain(b, { text: t(b.captain_lang, 'capConfirmed', tripFields(b, b.captain_lang)) });
     await toOwner(t(owner, 'ownPaidFishing', b.code, usd(b.paid_online), b.captain_name, fmtDate(b.date, owner)));
   } else if (b.kind === 'massage') {
@@ -91,6 +95,17 @@ export async function sendReminder(b, which) {
     await toClient(b, t(b.lang, 'rentalPickup', b.code), true);
     await toOwner(t(owner, 'ownPickup', b.code, b.delivery_address, b.customer_name, b.customer_phone));
   }
+}
+
+// Follow-up for a booking that expired unpaid: offer it once more with a "Book it again" button.
+export async function offerAgain(b) {
+  const what = b.kind === 'fishing' ? t(b.lang, 'whatFishing', b.boat_name)
+    : b.kind === 'massage' ? t(b.lang, 'whatMassage') : t(b.lang, 'whatRental');
+  const name = (b.customer_name || '').split(/\s+/)[0];
+  await sendMessage(b.customer_phone, {
+    text: t(b.lang, 'followUp', name, what, fmtDate(b.date, b.lang)),
+    buttons: [{ id: `rebook_${b.code}`, title: t(b.lang, 'rebook') }],
+  }, { lang: b.lang });
 }
 
 // Short notices to captains about a request or trip.

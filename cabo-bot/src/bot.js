@@ -153,6 +153,7 @@ async function repeatStep(c) {
     case 'fish_date': return say(c, T(c, 'fishStart'));
     case 'fish_guests': return say(c, T(c, 'askGuests', D(c, d.date)));
     case 'fish_hours': return STATES.fish_guests(c, { text: String(d.guests) });
+    case 'fish_style': return askStyle(c);
     case 'fish_boat': return showBoats(c);
     case 'ask_name': return askName(c, d.after_name);
     case 'fish_confirm': return showFishingSummary(c);
@@ -217,6 +218,7 @@ const EXPECTS = {
   fish_date: 'the date of the fishing trip',
   fish_guests: 'how many people are going fishing',
   fish_hours: 'trip length: 4, 6 or 8 hours',
+  fish_style: 'what kind of day they want: serious fishing, family fun or relaxed (option_id)',
   fish_boat: 'which boat (option_id)',
   fish_confirm: 'confirm and pay (option "pay") or change the trip (option "change")',
   awaiting_captain: 'nothing: they are waiting for the captain to confirm the boat',
@@ -381,6 +383,7 @@ const STATES = {
   },
 
   async menu(c, input) {
+    if (input.replyId?.startsWith('rebook_')) return rebook(c, input.replyId.slice(7));
     const text = norm(input.text);
     const picked = pick(c, input);
     const choice = picked || activityIn(input.text);
@@ -428,6 +431,16 @@ const STATES = {
     const id = pick(c, input) || ({ 4: 'h4', 6: 'h6', 8: 'h8' })[readHours(input.text)];
     if (!id) return notUnderstood(c, input, T(c, 'hoursInvalid'));
     c.data.hours = Number(id.slice(1));
+    // With a choice to make, ask what kind of day they want so we can recommend a boat.
+    return boatsFor(c).length >= 2 ? askStyle(c) : showBoats(c);
+  },
+
+  async fish_style(c, input) {
+    const id = pick(c, input);
+    const text = norm(input.text);
+    const style = id?.startsWith('style_') ? id.slice(6) : Object.keys(STYLE_WORDS).find((s) => STYLE_WORDS[s].test(text));
+    if (!style) return notUnderstood(c, input, T(c, 'pickStyle'));
+    c.data.style = style;
     return showBoats(c);
   },
 
@@ -453,6 +466,10 @@ const STATES = {
   async fish_confirm(c, input) {
     const id = pick(c, input);
     if (id === 'change') return startFishing(c);
+    if (id === 'upgrade' && LONGER[c.data.hours]) {
+      c.data.hours = LONGER[c.data.hours];
+      return showFishingSummary(c);
+    }
     if (id !== 'pay') return notUnderstood(c, input, T(c, 'confirmFishHint'));
     const expiresAt = captainDeadline(config.captainReplyMinutes);
     // Too close to departure to wait for the captain (e.g. booked late at night for tomorrow morning).
@@ -521,6 +538,16 @@ const STATES = {
     const id = pick(c, input);
     if (id === 'checkout') {
       if (!c.data.cart.length) return showItems(c);
+      // Once per rental: suggest life jackets if they aren't in the cart yet.
+      const jacket = !c.data.jacketsOffered && rentalItems().find((i) => /life jacket|chaleco/i.test(i.name)
+        && !c.data.cart.some((x) => x.itemId === i.id) && itemAvailability(i.id, c.data.start, c.data.end) > 0);
+      if (jacket) {
+        c.data.jacketsOffered = true;
+        return ask(c, { text: T(c, 'offerJackets') }, [
+          { id: `item${jacket.id}`, title: T(c, 'addJackets') },
+          { id: 'checkout', title: T(c, 'noThanks') },
+        ]);
+      }
       c.state = 'rent_address';
       return say(c, T(c, 'askAddress'));
     }
@@ -679,10 +706,32 @@ async function startFishing(c) {
   await say(c, T(c, 'fishStart'));
 }
 
-async function showBoats(c) {
+const STYLES = ['fishing', 'family', 'relaxed'];
+const STYLE_WORDS = {
+  fishing: /fish|marlin|tuna|dorado|serious|sport|pesca|pescar|atun/,
+  family: /famil|kids?\b|child|ninos|ninas|hijos/,
+  relaxed: /relax|chill|easy|calm|sunset|tranquil|descans|atardecer|paseo/,
+};
+const TAGS = ['popular', 'value', 'premium', 'family'];
+
+// Boats free for the trip in c.data, cheapest first (without the ones the customer already turned down).
+function boatsFor(c) {
   const { date, hours, guests } = c.data;
   const exclude = c.data.excludeBoats || [];
-  const boats = availableBoats(date, hours, guests).filter((b) => !exclude.includes(b.id)).slice(0, 8);
+  return availableBoats(date, hours, guests).filter((b) => !exclude.includes(b.id));
+}
+
+async function askStyle(c) {
+  c.state = 'fish_style';
+  await ask(c, { text: T(c, 'askStyle') }, STYLES.map((s) => ({ id: `style_${s}`, title: T(c, `style_${s}`) })));
+}
+
+async function showBoats(c) {
+  const { date, hours, guests, style } = c.data;
+  const boats = boatsFor(c).slice(0, 8);
+  // Our pick: the cheapest boat that is good for the kind of day they want, shown first with a star.
+  const recommended = style ? boats.find((b) => (b.best_for || '').split(',').includes(style)) : null;
+  if (recommended) boats.sort((a, b) => (a === recommended ? -1 : b === recommended ? 1 : 0));
   c.state = 'fish_boat';
   if (!boats.length) {
     return ask(c, { text: T(c, 'noBoats', D(c, date), guests, hours) }, [
@@ -693,13 +742,15 @@ async function showBoats(c) {
   }
   const rows = boats.map((b) => ({
     id: `boat${b.id}`,
-    title: `${b.name}${b.length_ft ? ` ${b.length_ft}ft` : ''}`,
+    title: `${b === recommended ? '⭐ ' : ''}${b.name}${b.length_ft ? ` ${b.length_ft}ft` : ''}`,
     description: T(c, 'boatRow', usd(b.price), b.max_guests, b.captain_name),
   }));
   rows.push({ id: 'otherdate', title: T(c, 'anotherDate') });
-  const details = boats.map((b, i) => `*${i + 1}. ${b.name}* — ${usd(b.price)}\n${boatDescription(b, c.lang)}`.trim()).join('\n\n');
+  const label = (b) => (TAGS.includes(b.tag) ? ` · ${T(c, `tag_${b.tag}`)}` : '');
+  const details = boats.map((b, i) => `*${i + 1}. ${b.name}* — ${usd(b.price)}${label(b)}\n${boatDescription(b, c.lang)}`.trim()).join('\n\n');
+  const pickLine = recommended ? T(c, 'ourPick', recommended.name, T(c, `why_${style}`)) + '\n\n' : '';
   await ask(c, {
-    text: T(c, 'boatsAvailable', D(c, date), hours, fmtTime(TRIP_START[hours], c.lang), details, config.depositPercent),
+    text: pickLine + T(c, 'boatsAvailable', D(c, date), hours, fmtTime(TRIP_START[hours], c.lang), details, config.depositPercent),
     listButton: T(c, 'chooseBoat'),
     listTitle: T(c, 'availableBoats'),
   }, rows);
@@ -720,18 +771,23 @@ async function showFishingSummary(c) {
     return showBoats(c);
   }
   const deposit = Math.ceil((boat.price * config.depositPercent) / 100);
+  // Offer the next longer trip on the same boat when it's free: "Make it 6 hours for +$150".
+  const longer = LONGER[hours] && availableBoats(date, LONGER[hours], guests).find((b) => b.id === boatId);
+  const upsell = longer ? `\n\n${T(c, 'upsellHours', LONGER[hours], usd(longer.price - boat.price))}` : '';
   c.state = 'fish_confirm';
   await ask(c, {
     text: T(c, 'fishSummary', {
       boat: boat.name, captain: boat.captain_name, date: D(c, date), time: fmtTime(TRIP_START[hours], c.lang), hours, guests,
       name: c.data.name, meeting: boat.meeting_point, total: usd(boat.price), deposit: usd(deposit), cash: usd(boat.price - deposit),
-    }),
+    }) + upsell,
   }, [
     { id: 'pay', title: T(c, 'confirmPay') },
+    longer ? { id: 'upgrade', title: T(c, 'upgradeButton', LONGER[hours]) } : { id: 'human', title: T(c, 'talkToPerson') },
     { id: 'change', title: T(c, 'change') },
-    { id: 'human', title: T(c, 'talkToPerson') },
   ]);
 }
+
+const LONGER = { 4: 6, 6: 8 };
 
 async function startRental(c) {
   c.state = 'rent_start';
@@ -833,6 +889,23 @@ async function showMassageSummary(c) {
     { id: 'change', title: T(c, 'change') },
     { id: 'human', title: T(c, 'talkToPerson') },
   ]);
+}
+
+// "Book it again" from the follow-up message: back to the summary of the booking that expired unpaid.
+async function rebook(c, code) {
+  const b = getBooking(code);
+  if (!b || b.customer_phone !== c.phone) return showMenu(c);
+  const name = c.data.name || b.customer_name;
+  if (b.kind === 'fishing') {
+    c.data = { name, date: b.date, hours: b.hours, guests: b.guests, boatId: b.boat_id };
+    return showFishingSummary(c);
+  }
+  if (b.kind === 'massage') {
+    c.data = { name, date: b.date, time: b.start_time, minutes: b.duration_min, people: b.guests, address: b.delivery_address };
+    return showMassageSummary(c);
+  }
+  c.data = { name, start: b.date, end: b.end_date, address: b.delivery_address, cart: b.items.map((i) => ({ itemId: i.item_id, qty: i.qty })) };
+  return showRentalSummary(c);
 }
 
 function restoreTrip(b) {

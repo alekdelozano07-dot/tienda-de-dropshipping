@@ -21,9 +21,9 @@ function seed() {
   const db = openDb(':memory:');
   // Captain 1 reads Spanish (the default), captain 2 English. The owner reads Spanish.
   db.prepare(`INSERT INTO captains (id, name, phone, lang) VALUES (1, 'Juan', ?, 'es'), (2, 'Miguel', ?, 'en')`).run(CAPTAIN, CAPTAIN2);
-  db.prepare(`INSERT INTO boats (id, captain_id, name, length_ft, max_guests, price_4h, price_6h, price_8h, meeting_point)
-              VALUES (1, 1, 'La Reina', 31, 6, 450, 600, 750, 'Dock M'),
-                     (2, 2, 'Pescadora', 26, 4, 350, 450, NULL, 'Dock A')`).run();
+  db.prepare(`INSERT INTO boats (id, captain_id, name, length_ft, max_guests, price_4h, price_6h, price_8h, meeting_point, best_for, tag)
+              VALUES (1, 1, 'La Reina', 31, 6, 450, 600, 750, 'Dock M', 'family,relaxed', 'popular'),
+                     (2, 2, 'Pescadora', 26, 4, 350, 450, NULL, 'Dock A', 'fishing', 'value')`).run();
   db.prepare(`INSERT INTO rental_items (id, name, name_es, category, price_per_day, stock)
               VALUES (1, 'Beach umbrella', 'Sombrilla', 'beach', 10, 2), (2, 'Stroller', 'Carriola', 'baby', 12, 1)`).run();
 }
@@ -247,6 +247,7 @@ test('expired holds are released and late payments are flagged', async () => {
   const date = addDays(caboToday(), 3);
   for (const t of ['hi', 'fish', date, '2']) await say(t);
   await say('4 hours', TOURIST, 'h4');
+  await say('x', TOURIST, 'style_fishing');
   await say('x', TOURIST, 'boat1');
   await say('x', TOURIST, 'usename');
   await say('x', TOURIST, 'pay');
@@ -275,6 +276,7 @@ test('day-before reminder goes to client and captain', async () => {
 async function requestBoat(boatId, date, guests = 2) {
   for (const t of ['hi', 'fish', date, String(guests)]) await say(t);
   await say('4 hours', TOURIST, 'h4');
+  await say('x', TOURIST, 'style_fishing');
   await say('x', TOURIST, `boat${boatId}`);
   await say('x', TOURIST, 'usename');
   await say('x', TOURIST, 'pay');
@@ -416,6 +418,94 @@ test('without AI: massage length in words', async () => {
   assert.match(lastTo(MX).text, /A qué hora te queda mejor/);
 });
 
+test('seller: asks what kind of day, recommends a boat and shows labels', async () => {
+  const date = addDays(caboToday(), 3);
+  for (const t of ['hi', 'fish', date, '2']) await say(t);
+  await say('4 hours', TOURIST, 'h4');
+  assert.match(lastTo(TOURIST).text, /What kind of day/);
+  await say('we want something for the kids'); // free text works too
+  const boats = lastTo(TOURIST);
+  assert.match(boats.text, /Our pick for you: La Reina\* — comfortable and safe for the whole family/);
+  assert.match(boats.text, /Most popular/);
+  assert.match(boats.text, /Best value/);
+  assert.deepEqual(boats.list.rows.map((r) => r.id), ['boat1', 'boat2', 'otherdate']);
+  assert.match(boats.list.rows[0].title, /^⭐ La Reina/);
+
+  await say('x', TOURIST, 'otherdate'); // start over with a different kind of day
+  await say(date);
+  await say('2');
+  await say('4 hours', TOURIST, 'h4');
+  await say('x', TOURIST, 'style_fishing');
+  assert.match(lastTo(TOURIST).text, /Our pick for you: Pescadora/);
+  assert.deepEqual(lastTo(TOURIST).list.rows.map((r) => r.id), ['boat2', 'boat1', 'otherdate']);
+});
+
+test('seller: offers a longer trip, and the upgrade changes the price', async () => {
+  const date = addDays(caboToday(), 3);
+  for (const t of ['hi', 'fish', date, '2']) await say(t);
+  await say('4 hours', TOURIST, 'h4');
+  await say('x', TOURIST, 'style_fishing');
+  await say('x', TOURIST, 'boat2');
+  await say('x', TOURIST, 'usename');
+  const summary = lastTo(TOURIST);
+  assert.match(summary.text, /Make it \*6 hours\* for just \+\$100/);
+  assert.deepEqual(summary.buttons.map((b) => b.id), ['pay', 'upgrade', 'change']);
+  await say('x', TOURIST, 'upgrade');
+  assert.match(lastTo(TOURIST).text, /6 hours/);
+  assert.match(lastTo(TOURIST).text, /Total \*\$450\*/);
+  assert.doesNotMatch(lastTo(TOURIST).text, /Make it/); // Pescadora has no 8-hour trip
+});
+
+test('seller: the fishing confirmation offers a massage, one tap away', async () => {
+  const code = (await requestBoat(1, addDays(caboToday(), 4)), lastTo(CAPTAIN).text.match(/(CB[0-9A-F]{6})/)[1]);
+  await say(`YES ${code}`, CAPTAIN);
+  await handlePayment(code);
+  const confirmation = lastTo(TOURIST);
+  assert.match(confirmation.text, /You're booked/);
+  assert.match(confirmation.text, /how about a massage/);
+  await say(confirmation.buttons[0].title, TOURIST, confirmation.buttons[0].id);
+  assert.match(lastTo(TOURIST).text, /What date would you like your massage/);
+});
+
+test('seller: suggests life jackets once at checkout', async () => {
+  getDb().prepare(`INSERT INTO rental_items (id, name, name_es, category, price_per_day, stock) VALUES (3, 'Life jacket', 'Chaleco', 'water', 5, 4)`).run();
+  await say('hi');
+  await say('rent');
+  await say(addDays(caboToday(), 2));
+  await say('2');
+  await say('x', TOURIST, 'item1');
+  await say('1', TOURIST, 'q1');
+  await say('x', TOURIST, 'checkout');
+  assert.match(lastTo(TOURIST).text, /Add life jackets/);
+  await say('x', TOURIST, 'checkout'); // "No thanks, continue"
+  assert.match(lastTo(TOURIST).text, /Where should we deliver/);
+});
+
+test('seller: follows up once on an unpaid booking that is still free', async () => {
+  await say('hi');
+  await say('rent');
+  await say(addDays(caboToday(), 2));
+  await say('2');
+  await say('x', TOURIST, 'item1');
+  await say('1', TOURIST, 'q1');
+  await say('x', TOURIST, 'checkout');
+  await say('Villa Paraiso, Pedregal 123');
+  await say('x', TOURIST, 'usename');
+  await say('x', TOURIST, 'pay');
+  const code = payCode(TOURIST);
+  getDb().prepare(`UPDATE bookings SET hold_expires_at = datetime('now', '-4 hours') WHERE code = ?`).run(code);
+  await tick();
+  const followUp = lastTo(TOURIST);
+  assert.match(followUp.text, /Still thinking about your paddleboard & kayak rental/);
+  assert.equal(followUp.buttons[0].id, `rebook_${code}`);
+  await say(followUp.buttons[0].title, TOURIST, followUp.buttons[0].id);
+  assert.match(lastTo(TOURIST).text, /Please confirm your rental/);
+
+  outbox.length = 0;
+  await tick();
+  assert.equal(outbox.filter((m) => m.to === TOURIST).length, 0); // only once
+});
+
 test('a QR scan always gets the welcome; a first message naming an activity goes straight to it', async () => {
   await say("Hi! I'd like to book a fishing trip (ref: villa-sol)");
   assert.match(lastTo(TOURIST).text, /Welcome/);
@@ -449,6 +539,8 @@ test('Spanish-speaking tourist books a trip in Spanish, captain 2 gets it in Eng
   assert.match(lastTo(MX).text, /Cuántas personas/);
   await say('3', MX);
   await say('4 horas', MX);
+  assert.match(lastTo(MX).text, /Qué tipo de día buscas/);
+  await say('familia', MX);
   assert.match(lastTo(MX).text, /barcos disponibles/);
   await say('x', MX, 'boat2');
   await say('x', MX, 'usename');
