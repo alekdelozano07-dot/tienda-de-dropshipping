@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS boat_blocks (
 CREATE TABLE IF NOT EXISTS rental_items (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
-  category TEXT NOT NULL, -- beach | baby
+  category TEXT NOT NULL, -- free label, e.g. water
   price_per_day INTEGER NOT NULL,
   stock INTEGER NOT NULL,
   active INTEGER NOT NULL DEFAULT 1

@@ -89,7 +89,7 @@ function catalog() {
       + `${b.description || ''} Meeting point: ${b.meeting_point || 'to be confirmed'}.`),
     `Fishing payment: ${config.depositPercent}% deposit online by card, the rest in cash to the captain on the day.`,
     '',
-    `Beach & baby gear rentals (USD per day, delivered to the villa; delivery & pickup $${config.rentalDeliveryFee} per rental, paid online in full):`,
+    `Paddleboard & kayak rentals (USD per day, delivered to the villa; delivery & pickup $${config.rentalDeliveryFee} per rental, paid online in full):`,
     ...items.map((i) => `- ${i.name}${i.name_es ? ` / ${i.name_es}` : ''}: $${i.price_per_day}/day`),
     '',
     `In-villa massage (USD per person): 60 min $${config.massagePrice60}, 90 min $${config.massagePrice90}. `
@@ -100,7 +100,7 @@ function catalog() {
 }
 
 function systemPrompt() {
-  return `You read WhatsApp messages for the booking bot of ${config.businessName}, a concierge in Los Cabos, Mexico, that books fishing charters, beach & baby gear rentals and in-villa massages.
+  return `You read WhatsApp messages for the booking bot of ${config.businessName}, a concierge in Los Cabos, Mexico, that books fishing charters, paddleboard & kayak rentals and in-villa massages.
 
 The bot runs a fixed step-by-step booking flow with buttons. You are only called when its simple rules did not understand the customer's last message. Work out what the customer meant and return JSON:
 

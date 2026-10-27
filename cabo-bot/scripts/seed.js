@@ -31,16 +31,10 @@ const captains = [
 ];
 
 const items = [
-  { name: 'Beach umbrella', name_es: 'Sombrilla de playa', category: 'beach', price_per_day: 10, stock: 10 },
-  { name: 'Beach chair', name_es: 'Silla de playa', category: 'beach', price_per_day: 6, stock: 20 },
-  { name: 'Cooler with ice', name_es: 'Hielera con hielo', category: 'beach', price_per_day: 10, stock: 8 },
-  { name: 'Snorkel set', name_es: 'Equipo de snorkel', category: 'beach', price_per_day: 8, stock: 10 },
-  { name: 'Boogie board', name_es: 'Tabla boogie', category: 'beach', price_per_day: 8, stock: 6 },
-  { name: 'Beach cart/wagon', name_es: 'Carrito de playa', category: 'beach', price_per_day: 12, stock: 4 },
-  { name: 'Stroller', name_es: 'Carriola', category: 'baby', price_per_day: 12, stock: 4 },
-  { name: 'Car seat', name_es: 'Silla para auto', category: 'baby', price_per_day: 10, stock: 4 },
-  { name: 'Travel crib + sheets', name_es: 'Cuna de viaje + sábanas', category: 'baby', price_per_day: 12, stock: 4 },
-  { name: 'High chair', name_es: 'Silla periquera', category: 'baby', price_per_day: 8, stock: 4 },
+  { name: 'Stand-up paddleboard', name_es: 'Paddleboard (tabla de remo)', category: 'water', price_per_day: 45, stock: 4 },
+  { name: 'Single kayak', name_es: 'Kayak individual', category: 'water', price_per_day: 40, stock: 3 },
+  { name: 'Double kayak', name_es: 'Kayak doble', category: 'water', price_per_day: 55, stock: 2 },
+  { name: 'Life jacket', name_es: 'Chaleco salvavidas', category: 'water', price_per_day: 5, stock: 10 },
 ];
 
 for (const c of captains) {
@@ -69,5 +63,9 @@ for (const i of items) {
       .run(i.name, i.name_es || null, i.category, i.price_per_day, i.stock);
   }
 }
+
+// Items you removed from the list above stop being offered (past bookings keep them).
+const keep = items.map((i) => i.name);
+db.prepare(`UPDATE rental_items SET active = 0 WHERE name NOT IN (${keep.map(() => '?').join(', ')})`).run(...keep);
 
 console.log(`Seeded ${captains.length} captains and ${items.length} rental items into the database.`);

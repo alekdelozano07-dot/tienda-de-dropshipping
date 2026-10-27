@@ -85,8 +85,8 @@ export async function route(req, res) {
   if (req.method === 'GET' && path.startsWith('/qr/')) {
     const source = path.slice(4).replace(/[^\w-]/g, '').slice(0, 40) || 'qr';
     const text = url.searchParams.get('lang') === 'es'
-      ? `¡Hola! Quiero reservar un viaje de pesca o rentar equipo de playa (ref: ${source})`
-      : `Hi! I'd like to book a fishing trip or beach rentals (ref: ${source})`;
+      ? `¡Hola! Quiero ver qué actividades ofrecen (ref: ${source})`
+      : `Hi! I'd like to see what you offer (ref: ${source})`;
     return send(res, 302, '', 'text/plain', { Location: `https://wa.me/${config.botPhone}?text=${encodeURIComponent(text)}` });
   }
 

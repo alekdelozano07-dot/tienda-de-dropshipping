@@ -47,11 +47,11 @@ const en = {
   welcome: (hi, biz) =>
     `Hi${hi ? ' ' + hi : ''}! 👋 Welcome to *${biz}* in Los Cabos.\n\n` +
     `🎣 Book a *fishing charter* with trusted local captains\n` +
-    `🏖️ Rent *beach & baby gear* delivered to your villa\n` +
+    `🛶 Rent *paddleboards & kayaks* delivered to your villa\n` +
     `💆 Book a *massage at your villa* with a professional therapist\n\n` +
     `What can I help you with?\n\n🇲🇽 _Escribe *español* para cambiar de idioma._`,
   menuFish: '🎣 Fishing trip',
-  menuRent: '🏖️ Beach & baby gear',
+  menuRent: '🛶 Paddleboard & kayak',
   menuMassage: '💆 Massage at your villa',
   talkToPerson: '🙋 Talk to a person',
   whatToDo: 'What would you like to do?',
@@ -110,11 +110,11 @@ const en = {
   captainDeclined: (captain, date) => `😕 Sorry, Capt. ${captain}'s boat is no longer available on ${date}. Here are other great options:`,
   captainTimeout: (captain, date) => `⏳ Capt. ${captain} hasn't confirmed yet, so let's not keep you waiting. Here are other boats available on ${date}:`,
 
-  rentStart: '🏖️ Great! We deliver beach and baby gear right to your villa or Airbnb. What date should the rental start? (e.g. *tomorrow*, *Nov 14*)',
+  rentStart: '🛶 Great! We deliver paddleboards and kayaks right to your villa or Airbnb. What date should the rental start? (e.g. *tomorrow*, *Nov 14*)',
   askDays: (date) => `Starting ${date} 👍 For how many days do you need the gear?`,
   daysInvalid: 'Please send the number of days, for example *5*.',
   days: (n) => plural(n, 'day', 'days'),
-  itemRow: (price, category) => `${price}/day · ${category === 'baby' ? '👶 Baby' : '🏖️ Beach'}`,
+  itemRow: (price) => `${price}/day`,
   cart: (days, lines) => `🛒 Your cart (${days}):\n${lines}\n\nAdd more items, or tap *Done – checkout*.`,
   doneCheckout: '✅ Done – checkout',
   doneCheckoutDesc: 'Continue to delivery details',
@@ -157,7 +157,7 @@ const en = {
   payMassage: (deposit, cash) => `your *${deposit} deposit* to book the therapist. The remaining ${cash} is paid in cash to the therapist.`,
   payLink: (what, url, minutes) => `💳 Pay ${what}\n\n👉 ${url}\n\nWe're holding it for you for ${minutes} minutes. You'll get your confirmation here right after paying.`,
   stripeFishing: (code) => `Fishing charter ${code} – deposit`,
-  stripeRental: (code) => `Beach & baby rental ${code}`,
+  stripeRental: (code) => `Paddleboard & kayak rental ${code}`,
   stripeMassage: (code) => `In-villa massage ${code} – deposit`,
   alreadyConfirmed: (code) => `Your booking ${code} is confirmed ✅ Type *my bookings* to see it or *menu* for something else.`,
   linkExpired: 'That payment link has expired.',
@@ -177,7 +177,7 @@ const en = {
     `💵 Total ${total} · Deposit online ${deposit} · Cash to captain ${cash}`,
   ],
   summaryRental: ({ code, start, end, items, address, total }) => [
-    `🏖️ *Beach & baby rental* — ${code}`, `📅 ${start} → ${end}`, ...items, `🚚 Delivery to: ${address}`, `💵 Total ${total} (paid online)`,
+    `🛶 *Paddleboard & kayak rental* — ${code}`, `📅 ${start} → ${end}`, ...items, `🚚 Delivery to: ${address}`, `💵 Total ${total} (paid online)`,
   ],
   summaryMassage: ({ code, date, time, minutes, people, address, total, deposit, cash }) => [
     `💆 *Massage at your villa* — ${code}`,
@@ -189,7 +189,7 @@ const en = {
   bookedFishing: (summary, cash) =>
     `✅ You're booked! Payment received.\n\n${summary}\n\nPlease be at the meeting point 15 minutes early. Bring sunscreen, a hat, snacks and *${cash} in cash* for the captain ` +
     `(tips are appreciated but optional). We'll send you a reminder the day before. 🐟`,
-  bookedRental: (summary) => `✅ You're all set! Payment received.\n\n${summary}\n\nWe'll message you the day before to agree on a delivery time. Pickup is on the last day. 🏖️`,
+  bookedRental: (summary) => `✅ You're all set! Payment received.\n\n${summary}\n\nWe'll message you the day before to agree on a delivery time. Pickup is on the last day. 🛶`,
   bookedMassage: (summary, cash) =>
     `✅ You're booked! Payment received.\n\n${summary}\n\nThe therapist will arrive a few minutes early to set up. Please have *${cash} in cash* ready for the therapist. ` +
     `We'll send you a reminder the day before. 💆`,
@@ -198,11 +198,11 @@ const en = {
     `We'll refund you in full, and someone from our team will contact you shortly to find another option.`,
   reminderFishing: (summary, cash, captain) =>
     `⏰ Reminder: your fishing trip is tomorrow!\n\n${summary}\n\nBe there 15 minutes early and don't forget *${cash} in cash* for Capt. ${captain}. Questions? Just reply here.`,
-  thankYouFishing: (captain) => `🐟 Hope you had an amazing day on the water with Capt. ${captain}! Need beach chairs, umbrellas or baby gear for the rest of your stay? Just type *menu*. 🏖️`,
+  thankYouFishing: (captain) => `🐟 Hope you had an amazing day on the water with Capt. ${captain}! Want a paddleboard or kayak for the rest of your stay? Just type *menu*. 🛶`,
   reminderMassage: (summary, cash) =>
     `⏰ Reminder: your massage is tomorrow!\n\n${summary}\n\nDon't forget *${cash} in cash* for the therapist. Questions? Just reply here.`,
-  thankYouMassage: '💆 We hope you enjoyed your massage! Want a fishing trip or beach gear for the rest of your stay? Just type *menu*. 🏖️',
-  rentalTomorrow: (code, address) => `🏖️ Your rental (${code}) starts tomorrow! What time works best for delivery to ${address}? Just reply with a time.`,
+  thankYouMassage: '💆 We hope you enjoyed your massage! Want a fishing trip or a paddleboard for the rest of your stay? Just type *menu*. 🛶',
+  rentalTomorrow: (code, address) => `🛶 Your rental (${code}) starts tomorrow! What time works best for delivery to ${address}? Just reply with a time.`,
   rentalPickup: (code) => `🔁 Today is the last day of your rental (${code}). We'll come by to pick up the gear — what time works for you? Want to keep it longer? Type *human*.`,
   cancelledByOffice: (code) => `Your booking ${code} has been cancelled. If you paid online, your refund is on its way. Questions? Just reply here.`,
   botBack: 'Thanks for your patience! 🙌 Type *menu* anytime to book a fishing trip or rentals.',
@@ -286,11 +286,11 @@ const es = {
   welcome: (hi, biz) =>
     `¡Hola${hi ? ' ' + hi : ''}! 👋 Te damos la bienvenida a *${biz}* en Los Cabos.\n\n` +
     `🎣 Reserva un *viaje de pesca* con capitanes locales de confianza\n` +
-    `🏖️ Renta *equipo de playa y de bebé* con entrega en tu villa\n` +
+    `🛶 Renta *paddleboards y kayaks* con entrega en tu villa\n` +
     `💆 Reserva un *masaje en tu villa* con un terapeuta profesional\n\n` +
     `¿En qué te puedo ayudar?\n\n🇺🇸 _Type *english* to switch language._`,
   menuFish: '🎣 Viaje de pesca',
-  menuRent: '🏖️ Renta playa/bebé',
+  menuRent: '🛶 Renta paddle/kayak',
   menuMassage: '💆 Masaje en tu villa',
   talkToPerson: '🙋 Con una persona',
   whatToDo: '¿Qué te gustaría hacer?',
@@ -349,11 +349,11 @@ const es = {
   captainDeclined: (captain, date) => `😕 Lo sentimos, el barco del Cap. ${captain} ya no está disponible el ${date}. Aquí tienes otras opciones:`,
   captainTimeout: (captain, date) => `⏳ El Cap. ${captain} aún no confirma, así que no te hacemos esperar. Estos son otros barcos disponibles el ${date}:`,
 
-  rentStart: '🏖️ ¡Genial! Llevamos equipo de playa y de bebé a tu villa o Airbnb. ¿Qué día empieza la renta? (ej. *mañana*, *14 de noviembre*)',
+  rentStart: '🛶 ¡Genial! Llevamos paddleboards y kayaks a tu villa o Airbnb. ¿Qué día empieza la renta? (ej. *mañana*, *14 de noviembre*)',
   askDays: (date) => `Desde el ${date} 👍 ¿Por cuántos días necesitas el equipo?`,
   daysInvalid: 'Envía el número de días, por ejemplo *5*.',
   days: (n) => plural(n, 'día', 'días'),
-  itemRow: (price, category) => `${price}/día · ${category === 'baby' ? '👶 Bebé' : '🏖️ Playa'}`,
+  itemRow: (price) => `${price}/día`,
   cart: (days, lines) => `🛒 Tu carrito (${days}):\n${lines}\n\nAgrega más cosas o toca *Listo – pagar*.`,
   doneCheckout: '✅ Listo – pagar',
   doneCheckoutDesc: 'Continuar con los datos de entrega',
@@ -396,7 +396,7 @@ const es = {
   payMassage: (deposit, cash) => `tu *anticipo de ${deposit}* para apartar al terapeuta. Los ${cash} restantes se pagan en efectivo al terapeuta.`,
   payLink: (what, url, minutes) => `💳 Paga ${what}\n\n👉 ${url}\n\nTe lo apartamos ${minutes} minutos. Tu confirmación te llegará aquí justo después de pagar.`,
   stripeFishing: (code) => `Viaje de pesca ${code} – anticipo`,
-  stripeRental: (code) => `Renta de playa y bebé ${code}`,
+  stripeRental: (code) => `Renta de paddleboard y kayak ${code}`,
   stripeMassage: (code) => `Masaje en villa ${code} – anticipo`,
   alreadyConfirmed: (code) => `Tu reserva ${code} está confirmada ✅ Escribe *mis reservas* para verla o *menú* para otra cosa.`,
   linkExpired: 'Ese link de pago ya venció.',
@@ -416,7 +416,7 @@ const es = {
     `💵 Total ${total} · Anticipo en línea ${deposit} · Efectivo al capitán ${cash}`,
   ],
   summaryRental: ({ code, start, end, items, address, total }) => [
-    `🏖️ *Renta de playa y bebé* — ${code}`, `📅 ${start} → ${end}`, ...items, `🚚 Entrega en: ${address}`, `💵 Total ${total} (pagado en línea)`,
+    `🛶 *Renta de paddleboard y kayak* — ${code}`, `📅 ${start} → ${end}`, ...items, `🚚 Entrega en: ${address}`, `💵 Total ${total} (pagado en línea)`,
   ],
   summaryMassage: ({ code, date, time, minutes, people, address, total, deposit, cash }) => [
     `💆 *Masaje en tu villa* — ${code}`,
@@ -428,7 +428,7 @@ const es = {
   bookedFishing: (summary, cash) =>
     `✅ ¡Reserva lista! Recibimos tu pago.\n\n${summary}\n\nLlega al punto de encuentro 15 minutos antes. Lleva bloqueador, gorra, botanas y *${cash} en efectivo* para el capitán ` +
     `(las propinas se agradecen pero son opcionales). Te mandaremos un recordatorio un día antes. 🐟`,
-  bookedRental: (summary) => `✅ ¡Todo listo! Recibimos tu pago.\n\n${summary}\n\nTe escribiremos un día antes para acordar la hora de entrega. La recolección es el último día. 🏖️`,
+  bookedRental: (summary) => `✅ ¡Todo listo! Recibimos tu pago.\n\n${summary}\n\nTe escribiremos un día antes para acordar la hora de entrega. La recolección es el último día. 🛶`,
   bookedMassage: (summary, cash) =>
     `✅ ¡Reserva lista! Recibimos tu pago.\n\n${summary}\n\nEl terapeuta llegará unos minutos antes para preparar todo. Ten listos *${cash} en efectivo* para el terapeuta. ` +
     `Te mandaremos un recordatorio un día antes. 💆`,
@@ -437,11 +437,11 @@ const es = {
     `Te haremos el reembolso completo y alguien de nuestro equipo te contactará en breve para buscar otra opción.`,
   reminderFishing: (summary, cash, captain) =>
     `⏰ Recordatorio: ¡tu viaje de pesca es mañana!\n\n${summary}\n\nLlega 15 minutos antes y no olvides *${cash} en efectivo* para el Cap. ${captain}. ¿Dudas? Responde aquí.`,
-  thankYouFishing: (captain) => `🐟 ¡Esperamos que hayas disfrutado tu día en el mar con el Cap. ${captain}! ¿Necesitas sillas, sombrillas o equipo de bebé para el resto de tu estancia? Escribe *menú*. 🏖️`,
+  thankYouFishing: (captain) => `🐟 ¡Esperamos que hayas disfrutado tu día en el mar con el Cap. ${captain}! ¿Quieres un paddleboard o kayak para el resto de tu estancia? Escribe *menú*. 🛶`,
   reminderMassage: (summary, cash) =>
     `⏰ Recordatorio: ¡tu masaje es mañana!\n\n${summary}\n\nNo olvides *${cash} en efectivo* para el terapeuta. ¿Dudas? Responde aquí.`,
-  thankYouMassage: '💆 ¡Esperamos que hayas disfrutado tu masaje! ¿Quieres un viaje de pesca o equipo de playa para el resto de tu estancia? Escribe *menú*. 🏖️',
-  rentalTomorrow: (code, address) => `🏖️ ¡Tu renta (${code}) empieza mañana! ¿A qué hora te conviene la entrega en ${address}? Responde con una hora.`,
+  thankYouMassage: '💆 ¡Esperamos que hayas disfrutado tu masaje! ¿Quieres un viaje de pesca o un paddleboard para el resto de tu estancia? Escribe *menú*. 🛶',
+  rentalTomorrow: (code, address) => `🛶 ¡Tu renta (${code}) empieza mañana! ¿A qué hora te conviene la entrega en ${address}? Responde con una hora.`,
   rentalPickup: (code) => `🔁 Hoy es el último día de tu renta (${code}). Pasaremos a recoger el equipo; ¿a qué hora te conviene? ¿Quieres quedártelo más días? Escribe *humano*.`,
   cancelledByOffice: (code) => `Tu reserva ${code} fue cancelada. Si pagaste en línea, tu reembolso ya está en camino. ¿Dudas? Responde aquí.`,
   botBack: '¡Gracias por tu paciencia! 🙌 Escribe *menú* cuando quieras para reservar pesca o rentas.',

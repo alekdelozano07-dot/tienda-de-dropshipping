@@ -99,7 +99,7 @@ ${human.map((h) => `<tr><td>+${esc(h.phone)}</td><td>${esc(h.state)}</td><td>${e
 <h2>${x.upcoming}</h2><div class="scroll"><table>
 <tr><th>${x.date}</th><th>${x.code}</th><th>${x.type}</th><th>${x.details}</th><th>${x.client}</th><th>${x.online}</th><th>${x.cash}</th><th>${x.status}</th><th>${x.source}</th><th>${x.lang}</th></tr>
 ${upcoming.map((b) => `<tr><td>${esc(fmtDate(b.date, L))}${b.end_date ? ' → ' + esc(fmtDate(b.end_date, L)) : ''}</td><td>${esc(b.code)}</td>
-<td>${({ fishing: '🎣', massage: '💆' })[b.kind] || '🏖️'}</td>
+<td>${({ fishing: '🎣', massage: '💆' })[b.kind] || '🛶'}</td>
 <td>${b.kind === 'fishing' ? `${esc(b.boat_name)} · Cap. ${esc(b.captain_name)} · ${b.hours}h · ${b.guests} ${x.guests}`
     : b.kind === 'massage' ? `${esc(fmtTime(b.start_time, L))} · ${b.duration_min} min · ${b.guests} ${x.guests} · ${esc(b.delivery_address)}`
       : esc(b.delivery_address)}</td>

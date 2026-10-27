@@ -11,7 +11,7 @@ Escribe en español; la IA contesta en el idioma del cliente.
 - Pesca: se paga un anticipo en línea para apartar el barco y el resto en efectivo al capitán el día del viaje.
 - Antes de cobrar, el capitán confirma que el barco está disponible. El link de pago llega por WhatsApp.
 - Masajes: se paga una parte en línea y el resto en efectivo a la terapeuta. La terapeuta va a la villa y lleva todo lo necesario.
-- Rentas de playa y bebé: se paga todo en línea. Se entregan en la villa y se recogen el último día.
+- Rentas de paddleboards y kayaks: se paga todo en línea. Se entregan en la villa y se recogen el último día.
 - Se reserva desde mañana hasta 180 días después. Para el mismo día, una persona del equipo ayuda.
 - El cliente puede escribir "humano" o "human" en cualquier momento para hablar con una persona.
 
@@ -42,7 +42,12 @@ Escribe en español; la IA contesta en el idioma del cliente.
 - ¿Pueden darnos masaje a los dos al mismo tiempo (pareja)? → Por ahora hay una terapeuta, así que el masaje es de una persona a la vez. Para una pareja pueden reservar dos horarios el mismo día, o escribir "humano" para organizarlo.
 - ¿Qué necesito tener listo? → Solo un espacio tranquilo en la villa (una recámara o la terraza). La terapeuta lleva la mesa, sábanas, toallas y aceites.
 
-### Rentas de playa y bebé
+### Rentas de paddleboards y kayaks
+
+- ¿Dónde puedo remar? → En las bahías tranquilas del Mar de Cortés, como Playa Médano, Santa María o Chileno. No remes en las playas del lado del Pacífico (como Playa del Divorcio): tienen olas y corrientes fuertes. Lo mejor es en la mañana, cuando el mar está más tranquilo y hay menos lanchas.
+- ¿Necesito experiencia? → No, el paddleboard y el kayak son fáciles para principiantes en agua tranquila. Si es tu primera vez, empieza cerca de la orilla.
+- ¿Incluye chaleco salvavidas? → El chaleco se renta aparte en la lista de equipo. Recomendamos usarlo siempre, sobre todo con niños.
+- ¿Qué incluye la renta? → La tabla o el kayak con su remo, entregados en tu villa.
 
 - ¿A qué hora entregan? → Un día antes te escribimos para acordar la hora de entrega en tu villa. La recolección es el último día de la renta.
 - ¿Puedo rentar más días? → Sí, escribe "humano" antes de que termine tu renta y lo ajustamos si hay equipo disponible.

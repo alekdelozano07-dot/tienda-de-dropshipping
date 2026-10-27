@@ -340,6 +340,14 @@ test('detects the language of the first message', async () => {
   assert.equal(detectLang('👍', '15551234567'), 'en');
 });
 
+test('a QR scan always gets the welcome; a first message naming an activity goes straight to it', async () => {
+  await say("Hi! I'd like to book a fishing trip (ref: villa-sol)");
+  assert.match(lastTo(TOURIST).text, /Welcome/);
+  const other = '15558888888';
+  await say('I want to rent a kayak', other);
+  assert.match(lastTo(other).text, /paddleboards and kayaks/);
+});
+
 test('before a booking starts, the bot follows the language the customer writes in', async () => {
   await say('hola buenos dias');
   assert.match(lastTo(TOURIST).text, /Te damos la bienvenida/);

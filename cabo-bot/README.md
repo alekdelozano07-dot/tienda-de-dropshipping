@@ -1,6 +1,6 @@
-# Cabo Bot — bot de WhatsApp para tours de pesca y rentas de playa
+# Cabo Bot — bot de WhatsApp para tours de pesca, masajes y rentas de paddleboard/kayak
 
-El turista escanea un QR, te escribe por WhatsApp y el bot (en inglés o español) le vende un tour de pesca o una renta de equipo de playa/bebé. El cliente paga en línea, el sistema confirma, avisa al capitán y manda los recordatorios solo.
+El turista escanea un QR, te escribe por WhatsApp y el bot (en inglés o español) le vende un tour de pesca, un masaje en su villa o una renta de paddleboard/kayak. El cliente paga en línea, el sistema confirma, avisa al capitán y manda los recordatorios solo.
 
 ## Qué hace
 

@@ -1,7 +1,7 @@
 {
   "name": "cabo-bot",
   "version": "1.0.0",
-  "description": "WhatsApp bot that sells fishing charters and beach/baby gear rentals in Los Cabos",
+  "description": "WhatsApp bot that sells fishing charters, in-villa massages and paddleboard/kayak rentals in Los Cabos",
   "type": "module",
   "private": true,
   "engines": {

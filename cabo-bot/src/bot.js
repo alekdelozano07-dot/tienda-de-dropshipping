@@ -211,7 +211,7 @@ async function escalate(c, input, reason) {
 // answers questions from knowledge.md, or hands the chat to a person.
 
 const EXPECTS = {
-  menu: 'which activity they want: fishing, rental (beach/baby gear) or massage',
+  menu: 'which activity they want: fishing, rental (paddleboards & kayaks) or massage',
   fish_date: 'the date of the fishing trip',
   fish_guests: 'how many people are going fishing',
   fish_hours: 'trip length: 4, 6 or 8 hours',
@@ -344,14 +344,15 @@ async function notUnderstood(c, input, text) {
 // ---------- States ----------
 
 const FISH_WORDS = /fish|boat|charter|marlin|tuna|dorado|pesca|pescar|barco|lancha|atun/;
-const RENT_WORDS = /rent|beach|umbrella|chair|cooler|stroller|crib|baby|car seat|renta|playa|sombrilla|silla|hielera|carriola|cuna|bebe/;
+const RENT_WORDS = /rent|paddle|\bsup\b|kayak|canoe|renta|tabla|remo/;
 const MASSAGE_WORDS = /massage|masaje|spa/;
 
 const STATES = {
   // A first message that already names an activity skips the welcome and goes straight to it.
+  // QR scans (prefilled "... (ref: villa-x)") always get the welcome with every option.
   async new(c, input) {
-    const text = norm(input.text);
-    if (![FISH_WORDS, RENT_WORDS, MASSAGE_WORDS].some((re) => re.test(text))) return welcome(c, input);
+    const text = norm(input.text.replace(/\(ref:[^)]*\)/i, ''));
+    if (/\(ref:/i.test(input.text) || ![FISH_WORDS, RENT_WORDS, MASSAGE_WORDS].some((re) => re.test(text))) return welcome(c, input);
     c.data.name = c.data.name || input.profileName || null;
     return STATES.menu(c, input);
   },
