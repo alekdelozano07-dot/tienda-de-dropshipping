@@ -85,11 +85,11 @@ Los números van en formato internacional, solo dígitos: México `521` + 10 dí
 4. En **Webhooks**: URL `https://tu-dominio.com/webhook`, token de verificación = tu `WHATSAPP_VERIFY_TOKEN`. Suscríbete al campo `messages`.
 5. **Plantilla para avisos:** WhatsApp solo deja mandar mensajes libres hasta 24 h después del último mensaje de esa persona. Los recordatorios y avisos a capitanes pueden caer fuera de esa ventana, así que crea en el *WhatsApp Manager* una plantilla (categoría *Utility*, idioma inglés) con este cuerpo:
 
-   > `Update from Cabo Fish & Beach: {{1}}`
+   > `Update from Cabo Villa Concierge: {{1}}`
 
    Agrégale también la versión en español (mismo nombre, idioma *Spanish (MEX)*):
 
-   > `Aviso de Cabo Fish & Beach: {{1}}`
+   > `Aviso de Cabo Villa Concierge: {{1}}`
 
    y pon su nombre en `WHATSAPP_NOTIFY_TEMPLATE`. El bot usa automáticamente la versión del idioma de cada persona.
 
