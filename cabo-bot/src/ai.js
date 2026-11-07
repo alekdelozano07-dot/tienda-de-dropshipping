@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { config } from './config.js';
 import { getDb } from './db.js';
 import { faqText } from './faq.js';
+import { clientPrice } from './bookings.js';
 
 // The bot calls Claude only when its keyword rules don't understand a customer's message.
 // Claude never books, prices or confirms anything itself: it tells the bot what the customer meant
@@ -82,13 +83,13 @@ function catalog() {
     WHERE b.active = 1 AND c.active = 1 ORDER BY b.price_4h
   `).all();
   const items = db.prepare('SELECT * FROM rental_items WHERE active = 1 ORDER BY category, name').all();
-  const price = (h, p) => (p ? `${h}h $${p}` : null);
+  const price = (h, p) => (p ? `${h}h $${clientPrice(p)}` : null);
   return [
     'Fishing boats (price for the whole boat, USD; trips leave 7:00 AM for 4h/6h, 6:00 AM for 8h):',
     ...boats.map((b) => `- ${b.name} (${b.length_ft || '?'} ft, up to ${b.max_guests} people, Capt. ${b.captain_name}): `
       + `${[price(4, b.price_4h), price(6, b.price_6h), price(8, b.price_8h)].filter(Boolean).join(', ')}. `
       + `${b.description || ''} Meeting point: ${b.meeting_point || 'to be confirmed'}.`),
-    `Fishing payment: ${config.depositPercent}% deposit online by card, the rest in cash to the captain on the day.`,
+    `Fishing payment: a ${config.depositPercent}% reservation fee (included in the prices above) online by card, the rest in cash to the captain on the day.`,
     '',
     `Paddleboard & kayak rentals (USD per day, delivered to the villa; delivery & pickup $${config.rentalDeliveryFee} per rental, paid online in full):`,
     ...items.map((i) => `- ${i.name}${i.name_es ? ` / ${i.name_es}` : ''}: $${i.price_per_day}/day`),

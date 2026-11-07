@@ -8,7 +8,7 @@ Si algo no está, el bot le pasa el chat a una persona (a ti). Escribe en españ
 
 - Los clientes reservan por WhatsApp con este bot, en inglés o en español.
 - Se paga con tarjeta en una página segura de pago (Stripe). Nunca se pide la tarjeta por WhatsApp.
-- Pesca: se paga un anticipo en línea para apartar el barco y el resto en efectivo al capitán el día del viaje.
+- Pesca: se paga una cuota de reservación en línea para apartar el barco (ya incluida en el precio) y el resto en efectivo al capitán el día del viaje.
 - Antes de cobrar, el capitán confirma que el barco está disponible. El link de pago llega por WhatsApp.
 - Masajes: se paga una parte en línea y el resto en efectivo a la terapeuta. La terapeuta va a la villa y lleva todo lo necesario.
 - Rentas de paddleboards y kayaks: se paga todo en línea. Se entregan en la villa y se recogen el último día.

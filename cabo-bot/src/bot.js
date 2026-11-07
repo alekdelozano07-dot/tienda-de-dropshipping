@@ -770,7 +770,7 @@ async function showFishingSummary(c) {
     await say(c, T(c, 'boatJustTaken'));
     return showBoats(c);
   }
-  const deposit = Math.ceil((boat.price * config.depositPercent) / 100);
+  const deposit = boat.price - boat.captain_price; // our reservation fee
   // Offer the next longer trip on the same boat when it's free: "Make it 6 hours for +$150".
   const longer = LONGER[hours] && availableBoats(date, LONGER[hours], guests).find((b) => b.id === boatId);
   const upsell = longer ? `\n\n${T(c, 'upsellHours', LONGER[hours], usd(longer.price - boat.price))}` : '';
@@ -778,7 +778,7 @@ async function showFishingSummary(c) {
   await ask(c, {
     text: T(c, 'fishSummary', {
       boat: boat.name, captain: boat.captain_name, date: D(c, date), time: fmtTime(TRIP_START[hours], c.lang), hours, guests,
-      name: c.data.name, meeting: boat.meeting_point, total: usd(boat.price), deposit: usd(deposit), cash: usd(boat.price - deposit),
+      name: c.data.name, meeting: boat.meeting_point, total: usd(boat.price), deposit: usd(deposit), cash: usd(boat.captain_price),
     }) + upsell,
   }, [
     { id: 'pay', title: T(c, 'confirmPay') },

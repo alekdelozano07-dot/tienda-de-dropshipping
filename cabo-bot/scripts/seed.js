@@ -1,4 +1,5 @@
 // Loads example captains, boats and rental gear. Edit freely, then run: npm run seed
+// Boat prices (price_4h/6h/8h) are what the captain charges and collects in cash; the bot adds your reservation fee.
 // Each captain gets messages in `lang` ('es' or 'en'). Descriptions and item names have an English and a Spanish version.
 // Running it again does not duplicate data (captains are matched by phone, items by name).
 // best_for: what the bot recommends a boat for — any of fishing, family, relaxed (comma separated).

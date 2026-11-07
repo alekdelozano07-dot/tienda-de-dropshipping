@@ -10,7 +10,7 @@ El turista escanea un QR, te escribe por WhatsApp y el bot (en inglés o españo
 | 2. Pesca | Pide fecha, número de personas y duración (4/6/8 h) → muestra **solo los barcos libres** ese día → el cliente elige |
 | 2b. Confirma el capitán | Antes de cobrar, el bot le pregunta al capitán por WhatsApp si el barco está libre (botones SÍ/NO). **SÍ** → el cliente recibe el link de pago. **NO** → ese día se cierra para ese barco y al cliente se le ofrecen otros. **No contesta en 15 min** → se le ofrecen otros barcos; si no queda ninguno, te pasa el chat a ti |
 | 3. Rentas | Pide fecha de inicio y días → muestra equipo con existencias reales → carrito → dirección de entrega |
-| 4. Pago | Link de Stripe. Pesca: **anticipo del 20 %** (tu comisión), el resto en efectivo al capitán. Rentas: **100 % en línea** |
+| 4. Pago | Link de Stripe. Pesca: **cuota de reservación** (tu comisión, se suma al precio del capitán), el capitán cobra su precio completo en efectivo. Rentas: **100 % en línea** |
 | 5. Apartado | El barco/equipo queda apartado 30 min mientras paga. Si no paga, se libera solo y se le avisa |
 | 6. Confirmación | Mensaje al cliente + aviso al capitán (con cuánto cobrar en efectivo) + aviso a ti |
 | 7. Recordatorios | Día anterior a las 5 PM (cliente y capitán). Rentas: aviso de entrega y de recogida. Pesca: mensaje de agradecimiento que ofrece rentas |
@@ -136,7 +136,7 @@ Netlify/Vercel no sirven para esto (no mantienen un servidor encendido ni un dis
 
 | Variable | Por defecto | Qué es |
 |---|---|---|
-| `DEPOSIT_PERCENT` | 20 | % que se cobra en línea en pesca (tu comisión) |
+| `DEPOSIT_PERCENT` | 20 | Pesca: tu cuota de reservación, como % de lo que paga el turista. En `seed.js` pones el precio del capitán y el bot le suma tu cuota: capitán $720 → turista $900 → tú $180 por Stripe, capitán $720 en efectivo |
 | `HOLD_MINUTES` | 30 | Minutos que se aparta el barco/equipo esperando el pago |
 | `CAPTAIN_REPLY_MINUTES` | 15 | Minutos que tiene el capitán para contestar SÍ/NO. Entre 9 PM y 7 AM el plazo empieza a contar a las 7 AM |
 | `RENTAL_DELIVERY_FEE` | 25 | Cargo fijo de entrega y recogida (USD) |

@@ -1,15 +1,16 @@
 import { getDb } from './db.js';
 import { config } from './config.js';
 import { norm } from './words.js';
+import { clientPrice } from './bookings.js';
 
 // Answers to common questions, in English and Spanish. The bot uses them when it doesn't understand a message
 // (no AI needed), and the AI reads them too when it is on. Edit freely: "match" lists the words that give the
 // question away (lowercase, no accents); the entry that matches the most of them wins.
 // ⚠️ The cancellation, port closure, tipping and keep-the-fish answers are proposals: confirm them with the captains.
 
-const fishingFrom = () => getDb().prepare(`
+const fishingFrom = () => clientPrice(getDb().prepare(`
   SELECT MIN(b.price_4h) AS p FROM boats b JOIN captains c ON c.id = b.captain_id WHERE b.active = 1 AND c.active = 1
-`).get().p;
+`).get().p);
 const rentalFrom = () => getDb().prepare('SELECT MIN(price_per_day) AS p FROM rental_items WHERE active = 1').get().p;
 
 export const FAQ = [
@@ -22,8 +23,8 @@ export const FAQ = [
   {
     q: 'How to pay',
     match: [/\b(card|cards|credit|debit|cash|pay|paying|payment|paypal|visa|mastercard|amex|tarjetas?|credito|debito|efectivo|pago|pagar|pagos)\b/],
-    en: 'You pay securely by card on a Stripe payment page we send you here (we never ask for your card on WhatsApp). For fishing and massages you pay a deposit online and the rest in cash on the day; paddleboard and kayak rentals are paid in full online.',
-    es: 'Pagas seguro con tarjeta en una página de pago de Stripe que te mandamos aquí (nunca te pedimos la tarjeta por WhatsApp). En pesca y masajes pagas un anticipo en línea y el resto en efectivo el día del servicio; las rentas de paddleboard y kayak se pagan completas en línea.',
+    en: 'You pay securely by card on a Stripe payment page we send you here (we never ask for your card on WhatsApp). For fishing you pay a reservation fee online and the rest in cash to the captain; for massages, a deposit online and the rest in cash to the therapist; paddleboard and kayak rentals are paid in full online.',
+    es: 'Pagas seguro con tarjeta en una página de pago de Stripe que te mandamos aquí (nunca te pedimos la tarjeta por WhatsApp). En pesca pagas una cuota de reservación en línea y el resto en efectivo al capitán; en masajes, un anticipo en línea y el resto en efectivo a la terapeuta; las rentas de paddleboard y kayak se pagan completas en línea.',
   },
   {
     q: 'Weather / port closed',
@@ -34,8 +35,8 @@ export const FAQ = [
   {
     q: 'Cancel / refund',
     match: [/\b(cancel\w*|refund\w*|reembols\w*|devolu\w*|money back|regres\w* (mi|el) dinero|devuelven)\b/],
-    en: 'Yes: cancel at least 48 hours before and you get back everything you paid online. With less than 48 hours the deposit is not refunded. To cancel, type *human* and someone from our team will help you.',
-    es: 'Sí: si cancelas con al menos 48 horas de anticipación te regresamos todo lo que pagaste en línea. Con menos de 48 horas el anticipo no se regresa. Para cancelar escribe *humano* y alguien del equipo te ayuda.',
+    en: 'Yes: cancel at least 48 hours before and you get back everything you paid online. With less than 48 hours the reservation fee or deposit is not refunded. To cancel, type *human* and someone from our team will help you.',
+    es: 'Sí: si cancelas con al menos 48 horas de anticipación te regresamos todo lo que pagaste en línea. Con menos de 48 horas la cuota de reservación o el anticipo no se regresan. Para cancelar escribe *humano* y alguien del equipo te ayuda.',
   },
   {
     q: 'Change the date',

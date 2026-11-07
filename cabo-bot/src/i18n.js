@@ -109,7 +109,7 @@ const en = {
   boatRow: (price, max, captain) => `${price} · up to ${max} people · Capt. ${captain}`,
   boatsAvailable: (date, hours, time, details, pct) =>
     `Here are the boats available on *${date}* (${hours}h, departs ${time}):\n\n${details}\n\n` +
-    `You pay only a ${pct}% deposit online to lock it in; the rest is paid in cash to the captain.`,
+    `You pay only a ${pct}% reservation fee online to lock it in; the rest is paid in cash to the captain on the day.`,
   chooseBoat: 'Choose a boat',
   availableBoats: 'Available boats',
   askNameDefault: 'Who should the reservation be under? Tap below or type another name.',
@@ -120,7 +120,7 @@ const en = {
   fishSummary: ({ boat, captain, date, time, hours, guests, name, meeting, total, deposit, cash }) =>
     `Please confirm your trip:\n\n🚤 ${boat} — Capt. ${captain}\n📅 ${date}, ${time} (${hours} hours)\n` +
     `👥 ${plural(guests, 'guest', 'guests')} · 🙋 ${name}\n` + (meeting ? `📍 ${meeting}\n` : '') +
-    `\n💵 Total *${total}*\n• Pay now online: *${deposit}* (deposit)\n• Pay the captain in cash: *${cash}*`,
+    `\n💵 Total *${total}*\n• Pay now online: *${deposit}* (reservation fee)\n• Pay the captain in cash: *${cash}*`,
   confirmPay: 'Confirm & pay',
   change: 'Change',
   confirmFishHint: 'Tap *Confirm & pay* to lock the boat, or *Change* to edit.',
@@ -178,11 +178,11 @@ const en = {
   confirmMassageHint: 'Tap *Confirm & pay* to book the therapist, or *Change* to edit.',
   massageJustTaken: 'Sorry, that time was just booked 😕 Here is what is still available:',
 
-  payFishing: (deposit, cash) => `your *${deposit} deposit* to lock the boat. The remaining ${cash} is paid in cash to the captain on the day.`,
+  payFishing: (deposit, cash) => `your *${deposit} reservation fee* to lock the boat. The remaining ${cash} is paid in cash to the captain on the day.`,
   payRental: (total) => `*${total}* to reserve your gear.`,
   payMassage: (deposit, cash) => `your *${deposit} deposit* to book the therapist. The remaining ${cash} is paid in cash to the therapist.`,
   payLink: (what, url, minutes) => `💳 Pay ${what}\n\n👉 ${url}\n\nWe're holding it for you for ${minutes} minutes. You'll get your confirmation here right after paying.`,
-  stripeFishing: (code) => `Fishing charter ${code} – deposit`,
+  stripeFishing: (code) => `Fishing charter ${code} – reservation fee`,
   stripeRental: (code) => `Paddleboard & kayak rental ${code}`,
   stripeMassage: (code) => `In-villa massage ${code} – deposit`,
   alreadyConfirmed: (code) => `Your booking ${code} is confirmed ✅ Type *my bookings* to see it or *menu* for something else.`,
@@ -200,7 +200,7 @@ const en = {
     `🚤 ${boat}${length ? ` (${length} ft)` : ''} — Capt. ${captain}`,
     `👥 ${plural(guests, 'guest', 'guests')}`,
     meeting ? `📍 Meeting point: ${meeting}` : null,
-    `💵 Total ${total} · Deposit online ${deposit} · Cash to captain ${cash}`,
+    `💵 Total ${total} · Reservation fee online ${deposit} · Cash to captain ${cash}`,
   ],
   summaryRental: ({ code, start, end, items, address, total }) => [
     `🛶 *Paddleboard & kayak rental* — ${code}`, `📅 ${start} → ${end}`, ...items, `🚚 Delivery to: ${address}`, `💵 Total ${total} (paid online)`,
@@ -237,7 +237,7 @@ const en = {
   // ----- Captain -----
   capRequest: ({ code, boat, date, time, hours, guests, total, deposit, cash, deadline }) =>
     `🎣 NEW REQUEST — ${code}\nIs *${boat}* free on *${date}*, ${time} for ${hours}h, ${plural(guests, 'guest', 'guests')}?\n` +
-    `Price: ${total} (client pays ${deposit} deposit online, you collect ${cash} cash)\n\n` +
+    `You collect *${cash}* in cash on the day (the client pays our reservation fee online).\n\n` +
     `Reply *YES ${code}* or *NO ${code}* ${deadline}.`,
   capWithin: (min) => `within ${min} min`,
   capByMorning: 'by 7:15 AM',
@@ -283,7 +283,7 @@ const en = {
   reasonTooSoon: (date, boat, hours, guests) => `Trip too soon to auto-confirm with the captain (${date}, boat #${boat}, ${hours}h, ${guests} guests)`,
   reasonNoBoats: (captain, declined, code, date, hours, guests) =>
     `Capt. ${captain} ${declined ? 'said NO' : "didn't answer"} for ${code} and no other boats are free (${date}, ${hours}h, ${guests} guests)`,
-  ownPaidFishing: (code, deposit, captain, date) => `💰 Fishing booking ${code} paid: deposit ${deposit} (your commission). Capt. ${captain}, ${date}.`,
+  ownPaidFishing: (code, deposit, captain, date) => `💰 Fishing booking ${code} paid: reservation fee ${deposit} (your commission). Capt. ${captain}, ${date}.`,
   ownDelivery: (code, summary, client, phone) => `📦 DELIVERY TASK — ${code}\n${summary}\nClient: ${client} (+${phone})`,
   ownMassage: (code, summary, client, phone) => `💆 MASSAGE BOOKED — ${code}\n${summary}\nClient: ${client} (+${phone})\nPlease assign a therapist.`,
   ownMassageTomorrow: (code, summary, client, phone) => `💆 Massage tomorrow — ${code}\n${summary}\nClient ${client} +${phone}`,
@@ -374,7 +374,7 @@ const es = {
   boatRow: (price, max, captain) => `${price} · hasta ${max} personas · Cap. ${captain}`,
   boatsAvailable: (date, hours, time, details, pct) =>
     `Estos son los barcos disponibles el *${date}* (${hours} h, salida ${time}):\n\n${details}\n\n` +
-    `Solo pagas en línea un anticipo del ${pct}% para apartarlo; el resto se paga en efectivo al capitán.`,
+    `Solo pagas en línea una cuota de reservación del ${pct}% para apartarlo; el resto se paga en efectivo al capitán el día del viaje.`,
   chooseBoat: 'Elegir barco',
   availableBoats: 'Barcos disponibles',
   askNameDefault: '¿A nombre de quién hacemos la reserva? Toca abajo o escribe otro nombre.',
@@ -385,7 +385,7 @@ const es = {
   fishSummary: ({ boat, captain, date, time, hours, guests, name, meeting, total, deposit, cash }) =>
     `Confirma tu viaje:\n\n🚤 ${boat} — Cap. ${captain}\n📅 ${date}, ${time} (${hours} horas)\n` +
     `👥 ${plural(guests, 'persona', 'personas')} · 🙋 ${name}\n` + (meeting ? `📍 ${meeting}\n` : '') +
-    `\n💵 Total *${total}*\n• Pagas ahora en línea: *${deposit}* (anticipo)\n• Pagas al capitán en efectivo: *${cash}*`,
+    `\n💵 Total *${total}*\n• Pagas ahora en línea: *${deposit}* (cuota de reservación)\n• Pagas al capitán en efectivo: *${cash}*`,
   confirmPay: 'Confirmar y pagar',
   change: 'Cambiar',
   confirmFishHint: 'Toca *Confirmar y pagar* para apartar el barco, o *Cambiar* para editar.',
@@ -443,11 +443,11 @@ const es = {
   confirmMassageHint: 'Toca *Confirmar y pagar* para apartar al terapeuta, o *Cambiar* para editar.',
   massageJustTaken: 'Perdón, alguien acaba de reservar ese horario 😕 Esto es lo que sigue disponible:',
 
-  payFishing: (deposit, cash) => `tu *anticipo de ${deposit}* para apartar el barco. Los ${cash} restantes se pagan en efectivo al capitán el día del viaje.`,
+  payFishing: (deposit, cash) => `tu *cuota de reservación de ${deposit}* para apartar el barco. Los ${cash} restantes se pagan en efectivo al capitán el día del viaje.`,
   payRental: (total) => `*${total}* para apartar tu equipo.`,
   payMassage: (deposit, cash) => `tu *anticipo de ${deposit}* para apartar al terapeuta. Los ${cash} restantes se pagan en efectivo al terapeuta.`,
   payLink: (what, url, minutes) => `💳 Paga ${what}\n\n👉 ${url}\n\nTe lo apartamos ${minutes} minutos. Tu confirmación te llegará aquí justo después de pagar.`,
-  stripeFishing: (code) => `Viaje de pesca ${code} – anticipo`,
+  stripeFishing: (code) => `Viaje de pesca ${code} – cuota de reservación`,
   stripeRental: (code) => `Renta de paddleboard y kayak ${code}`,
   stripeMassage: (code) => `Masaje en villa ${code} – anticipo`,
   alreadyConfirmed: (code) => `Tu reserva ${code} está confirmada ✅ Escribe *mis reservas* para verla o *menú* para otra cosa.`,
@@ -465,7 +465,7 @@ const es = {
     `🚤 ${boat}${length ? ` (${length} pies)` : ''} — Cap. ${captain}`,
     `👥 ${plural(guests, 'persona', 'personas')}`,
     meeting ? `📍 Punto de encuentro: ${meeting}` : null,
-    `💵 Total ${total} · Anticipo en línea ${deposit} · Efectivo al capitán ${cash}`,
+    `💵 Total ${total} · Cuota de reservación en línea ${deposit} · Efectivo al capitán ${cash}`,
   ],
   summaryRental: ({ code, start, end, items, address, total }) => [
     `🛶 *Renta de paddleboard y kayak* — ${code}`, `📅 ${start} → ${end}`, ...items, `🚚 Entrega en: ${address}`, `💵 Total ${total} (pagado en línea)`,
@@ -502,10 +502,10 @@ const es = {
   // ----- Capitán -----
   capRequest: ({ code, boat, date, time, hours, guests, total, deposit, cash, deadline }) =>
     `🎣 NUEVA SOLICITUD — ${code}\n¿Está libre *${boat}* el *${date}*, ${time} por ${hours} h, ${plural(guests, 'persona', 'personas')}?\n` +
-    `Precio: ${total} (el cliente paga ${deposit} de anticipo en línea, tú cobras ${cash} en efectivo)\n\n` +
+    `Tú cobras *${cash}* en efectivo el día del viaje (el cliente paga nuestra cuota de reservación en línea).\n\n` +
     `Responde *SÍ ${code}* o *NO ${code}* ${deadline}.`,
   capWithin: (min) => `en menos de ${min} min`,
-  capByMorning: 'antes de las 7:15 a.m.',
+  capByMorning: 'antes de las 7:15 de la mañana',
   capYes: '✅ SÍ, disponible',
   capNo: '❌ NO, ocupado',
   capConfirmed: ({ code, date, time, hours, boat, client, phone, guests, cash }) =>
@@ -548,7 +548,7 @@ const es = {
   reasonTooSoon: (date, boat, hours, guests) => `Viaje demasiado pronto para confirmar con el capitán (${date}, barco #${boat}, ${hours} h, ${guests} personas)`,
   reasonNoBoats: (captain, declined, code, date, hours, guests) =>
     `El Cap. ${captain} ${declined ? 'dijo que NO' : 'no contestó'} a ${code} y no hay otros barcos libres (${date}, ${hours} h, ${guests} personas)`,
-  ownPaidFishing: (code, deposit, captain, date) => `💰 Reserva de pesca ${code} pagada: anticipo ${deposit} (tu comisión). Cap. ${captain}, ${date}.`,
+  ownPaidFishing: (code, deposit, captain, date) => `💰 Reserva de pesca ${code} pagada: cuota de reservación ${deposit} (tu comisión). Cap. ${captain}, ${date}.`,
   ownDelivery: (code, summary, client, phone) => `📦 ENTREGA PENDIENTE — ${code}\n${summary}\nCliente: ${client} (+${phone})`,
   ownMassage: (code, summary, client, phone) => `💆 MASAJE RESERVADO — ${code}\n${summary}\nCliente: ${client} (+${phone})\nAsigna un terapeuta.`,
   ownMassageTomorrow: (code, summary, client, phone) => `💆 Masaje mañana — ${code}\n${summary}\nCliente ${client} +${phone}`,

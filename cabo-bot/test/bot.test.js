@@ -7,7 +7,7 @@ import { handleIncoming } from '../src/bot.js';
 import { handlePayment } from '../src/server.js';
 import { tick } from '../src/scheduler.js';
 import { addDays, caboInstant, caboToday, parseDate } from '../src/dates.js';
-import { availableBoats } from '../src/bookings.js';
+import { availableBoats, clientPrice } from '../src/bookings.js';
 import { setInterpreter } from '../src/ai.js';
 import { faqAnswer } from '../src/faq.js';
 import { fixTypos, readHours, readMinutes, readNumber, readPeople } from '../src/words.js';
@@ -38,6 +38,13 @@ beforeEach(() => { outbox.length = 0; seed(); setInterpreter(null); });
 // A fake AI answer: every field the real schema requires, with the given ones filled in.
 const AI = (fields) => ({ action: 'unknown', reply: '', flow: 'none', date: '', number: 0, hours: 0, minutes: 0, option_id: '', ...fields });
 
+test('reservation fee is added on top of the captain price', () => {
+  // Captain $720 -> customer $900 -> $180 reservation fee online (20% of what the customer pays)
+  assert.equal(clientPrice(720), 900);
+  assert.equal(clientPrice(720) - 720, 180);
+  assert.equal(availableBoats(addDays(caboToday(), 3), 4, 2).find((b) => b.id === 1).captain_price, 450);
+});
+
 test('parses common date formats', () => {
   const now = new Date('2026-10-24T18:00:00Z'); // Sat Oct 24 in Cabo
   assert.equal(parseDate('tomorrow', now), '2026-10-25');
@@ -62,14 +69,17 @@ test('full fishing booking: availability, deposit, captain notified', async () =
   assert.match(boats.text, /La Reina/);
   await say('La Reina', TOURIST, 'boat1');
   await say('Jane Doe', TOURIST, 'usename');
-  assert.match(lastTo(TOURIST).text, /Pay now online: \*\$150\*/);
-  assert.match(lastTo(TOURIST).text, /cash: \*\$600\*/);
+  assert.match(lastTo(TOURIST).text, /Pay now online: \*\$188\* \(reservation fee\)/);
+  assert.match(lastTo(TOURIST).text, /cash: \*\$750\*/);
   await say('Confirm & pay', TOURIST, 'pay');
-  assert.match(lastTo(TOURIST).text, /Nothing to pay yet/);
+  assert.match(lastTo(TOURIST).text, /nothing to pay yet/i);
 
   // The captain is asked first; the boat is held meanwhile.
   const request = lastTo(CAPTAIN);
   assert.match(request.text, /NUEVA SOLICITUD/);
+  // The captain only sees his own price, which he collects in full
+  assert.match(request.text, /Tú cobras \*\$750 USD\* en efectivo/);
+  assert.doesNotMatch(request.text, /\$938/);
   assert.equal(availableBoats(date, 8, 2).length, 0);
   const code = request.text.match(/(CB[0-9A-F]{6})/)[1];
   assert.equal(request.buttons[0].id, `cap_yes_${code}`);
@@ -83,8 +93,8 @@ test('full fishing booking: availability, deposit, captain notified', async () =
   assert.equal(await handlePayment(code), 'confirmed');
   assert.match(lastTo(TOURIST).text, /You're booked/);
   assert.match(lastTo(CAPTAIN).text, /NUEVO VIAJE CONFIRMADO/);
-  assert.match(lastTo(CAPTAIN).text, /Cobrar en efectivo: \$600/);
-  assert.match(allTo(OWNER), /anticipo \$150 USD/);
+  assert.match(lastTo(CAPTAIN).text, /Cobrar en efectivo: \$750/);
+  assert.match(allTo(OWNER), /cuota de reservación \$188 USD/);
 
   const b = getDb().prepare('SELECT * FROM bookings WHERE code = ?').get(code);
   assert.equal(b.status, 'confirmed');
@@ -366,7 +376,7 @@ test('FAQ: picks the right answer in English and Spanish', () => {
   assert.match(faqAnswer('is lunch included?', 'en'), /depends on the boat/);
   assert.match(faqAnswer('¿Qué pasa si llueve?', 'es'), /Capitanía de Puerto/);
   assert.match(faqAnswer('can I cancel and get my money back?', 'en'), /48 hours/);
-  assert.match(faqAnswer('how much is it?', 'en'), /start at \$350/);
+  assert.match(faqAnswer('how much is it?', 'en'), /start at \$438/);
   assert.equal(faqAnswer('hello there', 'en'), null);
 });
 
@@ -387,7 +397,7 @@ test('without AI: questions in the first message or the menu get answered', asyn
 
   await say('how much does it cost?');
   const [price, menu] = outbox.filter((m) => m.to === TOURIST).slice(-2).map((m) => m.message.text);
-  assert.match(price, /start at \$350/);
+  assert.match(price, /start at \$438/);
   assert.match(menu, /What would you like to do/);
 
   // A question that also names an activity: answer it, then start that activity
@@ -448,11 +458,11 @@ test('seller: offers a longer trip, and the upgrade changes the price', async ()
   await say('x', TOURIST, 'boat2');
   await say('x', TOURIST, 'usename');
   const summary = lastTo(TOURIST);
-  assert.match(summary.text, /Make it \*6 hours\* for just \+\$100/);
+  assert.match(summary.text, /Make it \*6 hours\* for just \+\$125/);
   assert.deepEqual(summary.buttons.map((b) => b.id), ['pay', 'upgrade', 'change']);
   await say('x', TOURIST, 'upgrade');
   assert.match(lastTo(TOURIST).text, /6 hours/);
-  assert.match(lastTo(TOURIST).text, /Total \*\$450\*/);
+  assert.match(lastTo(TOURIST).text, /Total \*\$563\*/);
   assert.doesNotMatch(lastTo(TOURIST).text, /Make it/); // Pescadora has no 8-hour trip
 });
 
@@ -544,9 +554,9 @@ test('Spanish-speaking tourist books a trip in Spanish, captain 2 gets it in Eng
   assert.match(lastTo(MX).text, /barcos disponibles/);
   await say('x', MX, 'boat2');
   await say('x', MX, 'usename');
-  assert.match(lastTo(MX).text, /Pagas ahora en línea: \*\$70\*/);
+  assert.match(lastTo(MX).text, /Pagas ahora en línea: \*\$88\* \(cuota de reservación\)/);
   await say('Confirmar y pagar', MX);
-  assert.match(lastTo(MX).text, /Todavía no tienes que pagar nada/);
+  assert.match(lastTo(MX).text, /todavía no tienes que pagar nada/i);
   assert.match(lastTo(CAPTAIN2).text, /NEW REQUEST/);
   await say('yes', CAPTAIN2);
   assert.match(lastTo(CAPTAIN2).text, /We sent the payment link/);

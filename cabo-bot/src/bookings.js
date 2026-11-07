@@ -16,8 +16,11 @@ export function newCode() {
   return 'CB' + crypto.randomBytes(3).toString('hex').toUpperCase();
 }
 
-export function depositFor(total) {
-  return Math.ceil((total * config.depositPercent) / 100);
+// Fishing: the price stored for a boat is what the captain charges, and he gets all of it in cash on the day.
+// The customer pays that plus our reservation fee, which is DEPOSIT_PERCENT of what they pay in total and is
+// charged online: captain $720 -> customer $900 -> reservation fee $180.
+export function clientPrice(captainPrice) {
+  return Math.round(captainPrice / (1 - config.depositPercent / 100));
 }
 
 // ---------- Fishing ----------
@@ -35,7 +38,8 @@ export function availableBoats(date, hours, guests, { excludeBookingId = 0 } = {
       AND b.id NOT IN (SELECT boat_id FROM boat_blocks WHERE date = ?)
       AND b.id NOT IN (SELECT boat_id FROM bookings WHERE kind = 'fishing' AND date = ? AND id != ? AND ${HOLDING})
     ORDER BY price ASC
-  `).all(guests, date, date, excludeBookingId);
+  `).all(guests, date, date, excludeBookingId)
+    .map((b) => ({ ...b, captain_price: b.price, price: clientPrice(b.price) }));
 }
 
 // Creates a fishing request that waits for the captain to confirm until `expiresAt`.
@@ -46,13 +50,13 @@ export function createFishingRequest({ phone, name, source, lang = 'en', date, h
     const boat = availableBoats(date, hours, guests).find((b) => b.id === boatId);
     if (!boat) { db.exec('ROLLBACK'); return null; }
     const total = boat.price;
-    const deposit = depositFor(total);
+    const cash = boat.captain_price;
     const code = newCode();
     db.prepare(`
       INSERT INTO bookings (code, kind, status, customer_phone, customer_name, source, lang, date, boat_id, hours, guests,
                             total, paid_online, balance_cash, hold_expires_at)
       VALUES (?, 'fishing', 'awaiting_captain', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(code, phone, name, source, lang, date, boatId, hours, guests, total, deposit, total - deposit, sqlTime(expiresAt));
+    `).run(code, phone, name, source, lang, date, boatId, hours, guests, total, total - cash, cash, sqlTime(expiresAt));
     db.exec('COMMIT');
     return getBooking(code);
   } catch (e) {
